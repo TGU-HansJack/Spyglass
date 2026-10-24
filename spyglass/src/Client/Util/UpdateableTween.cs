@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -40,9 +40,11 @@ namespace spyglass.src.Client
 
         private float CosineSmooth(float from, float to, float timeSinceStart)
         {
+            if (Math.Abs(from - to) < 0.000001f)
+                return to;
             float transitionPercentage = (float)Math.Pow(Math.Abs(from - to),0.5);
 
-            float mu = Math.Max(0f, Math.Min(1f, startTime.ElapsedMilliseconds / (transitionLength * transitionPercentage)));
+            float mu = Math.Max(0f, Math.Min(1f, timeSinceStart / (transitionLength * transitionPercentage)));
             float mu2 = (1f - (float)Math.Cos(mu * Math.PI)) / 2f;
             return (from * (1f - mu2) + to * mu2);
         }

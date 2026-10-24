@@ -94,11 +94,15 @@ public sealed class PackageTask : FrostingTask<BuildContext>
     public override void Run(BuildContext context)
     {
         context.EnsureDirectoryExists("../Releases");
-        context.CleanDirectory("../Releases");
         context.EnsureDirectoryExists($"../Releases/{context.Name}");
+        context.CleanDirectory($"../Releases/{context.Name}");
         context.CopyFiles($"../{BuildContext.ProjectName}/bin/{context.BuildConfiguration}/Mods/mod/publish/*", $"../Releases/{context.Name}");
         context.CopyDirectory($"../{BuildContext.ProjectName}/assets", $"../Releases/{context.Name}/assets");
         context.CopyFile($"../{BuildContext.ProjectName}/modinfo.json", $"../Releases/{context.Name}/modinfo.json");
+        context.CopyFile("../LICENSE", $"../Releases/{context.Name}/LICENSE");
+        context.CopyFile("../NOTICE.txt", $"../Releases/{context.Name}/NOTICE.txt");
+        context.CopyFile("../README.md", $"../Releases/{context.Name}/README.md");
+        context.CopyFile("../COMPATIBILITY-FORK.md", $"../Releases/{context.Name}/COMPATIBILITY-FORK.md");
         context.Zip($"../Releases/{context.Name}", $"../Releases/{context.Name}_{context.Version}.zip");
     }
 }

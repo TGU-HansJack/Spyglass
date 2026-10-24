@@ -30,6 +30,6 @@
 		]
 	],
 	"name": "Spyglass Tube",
-	"code": "spyglass:spytube-{metal}",
+	"code": "spyglassfork:spytube-{metal}",
 	"output": { "type": "item", "code": "spytube-{metal}"  }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -22,14 +22,15 @@ namespace spyglass.src
 
         public void Start(ILogger logger)
         {
-            harmony = new Harmony("spyglass");
+            harmony = new Harmony(SpyglassMod.ModId);
 
             BasePatch[] patches = new BasePatch[] {
                 new Client.Patches.OnBeforeRenderFrame3D(),
                 new Client.Patches.Set3DProjection(),
                 new Client.Patches.ImmersiveFpSystemRenderEntities(),
                 new Client.Patches.OnMouseMove(),
-                new Client.Patches.GuiDialogHudPatch()
+                new Client.Patches.GuiDialogHudPatch(),
+                new Client.Patches.OptionalHudPatches()
             };
 
             foreach ( var patch in patches )
@@ -47,7 +48,7 @@ namespace spyglass.src
 
         public void Stop()
         {
-            harmony.UnpatchAll("spyglass");
+            harmony.UnpatchAll(SpyglassMod.ModId);
         }
     }
 }

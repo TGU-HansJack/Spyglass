@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -11,6 +11,8 @@ namespace spyglass.src.Client
 	abstract class GameWheel : HudElement
 	{
 		private bool wasEnabled = false;
+		private bool recomposeRequested;
+		private const string ComposerName = SpyglassMod.ModId + "-zoomoverlay";
 
 		public override bool Focusable
 		{
@@ -24,7 +26,7 @@ namespace spyglass.src.Client
 
 		public GameWheel(ICoreClientAPI capi) : base(capi)
 		{
-			SingleComposer = capi.Gui.CreateCompo("gamewheel", ElementBounds.Empty).Compose(true);
+			SingleComposer = capi.Gui.CreateCompo(ComposerName, ElementBounds.Empty).Compose(true);
 		}
 
 		public override bool TryClose()
@@ -38,10 +40,12 @@ namespace spyglass.src.Client
 		}
 		public override void OnRenderGUI(float deltaTime)
 		{
-			if ( wasEnabled != IsEnabled() )
+			bool enabled = IsEnabled();
+			if (wasEnabled != enabled || recomposeRequested)
 			{
-				wasEnabled = !wasEnabled;
-				SingleComposer = adjustCompose( capi.Gui.CreateCompo("gamewheel", wasEnabled ? ElementBounds.Fill : ElementBounds.Empty) ).Compose(true);
+				wasEnabled = enabled;
+				SingleComposer = adjustCompose(capi.Gui.CreateCompo(ComposerName, wasEnabled ? ElementBounds.Fill : ElementBounds.Empty)).Compose(true);
+				recomposeRequested = false;
 			}
 
 			if (wasEnabled)
@@ -49,6 +53,11 @@ namespace spyglass.src.Client
 				BeforeRenderGUI(deltaTime);
 				base.OnRenderGUI(deltaTime);
 			}
+		}
+
+		public void RequestRecompose()
+		{
+			recomposeRequested = true;
 		}
 
 		// when enabled some mouse actions are blocked, so best only enable when in use.

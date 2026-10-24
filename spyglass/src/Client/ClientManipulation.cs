@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -35,6 +35,10 @@ namespace spyglass.src
         public ClientManipulation(ICoreClientAPI capi)
         {
             ClientManipulation.capi = capi;
+            isZoomed = false;
+            SpyglassMod.zoomed = false;
+            realCameraMode = EnumCameraMode.FirstPerson;
+            resetCameraMode = false;
             zoomAnimation = new UpdateableTween(0f, SpyglassMod.config.transitionTimeBasis);
 
             patcher = new ClientPatcher();
@@ -45,6 +49,12 @@ namespace spyglass.src
         public void Dispose()
         {
             patcher.Stop();
+            isZoomed = false;
+            SpyglassMod.zoomed = false;
+            realCameraMode = EnumCameraMode.FirstPerson;
+            resetCameraMode = false;
+            zoomAnimation = null;
+            capi = null;
         }
 
         internal static bool EnableEffect()
@@ -57,6 +67,8 @@ namespace spyglass.src
 
         public static EnumCameraMode HandleCameraMode(EnumCameraMode mode)
         {
+            if (!resetCameraMode)
+                realCameraMode = mode;
             if (EnableEffect())
             {
                 if (getPercentZoomed() > 0.001f)
@@ -76,7 +88,7 @@ namespace spyglass.src
 
         internal static bool IsLocalPlayer(EntityAgent byEntity)
         {
-            return capi.World.Player.Entity == byEntity;
+            return byEntity != null && capi?.World?.Player?.Entity == byEntity;
         }
 
         public static double GetSensitivityMultiplier()
@@ -103,6 +115,53 @@ namespace spyglass.src
             return adjust;
         }
 
+        internal static string GetHeldSpyglassMaterial()
+        {
+            IPlayerInventoryManager manager = capi?.World?.Player?.InventoryManager;
+            if (manager == null)
+                return "copper";
+
+            int slotIndex = manager.ActiveHotbarSlotNumber;
+            IInventory inv = manager.GetHotbarInventory();
+            if (inv == null || slotIndex < 0 || slotIndex >= inv.Count())
+                return "copper";
+
+            string path = inv[slotIndex]?.Itemstack?.Item?.Code?.Path;
+            const string prefix = "spyglass-";
+            if (string.IsNullOrEmpty(path) || !path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return "copper";
+
+            string material = path.Substring(prefix.Length);
+            return string.IsNullOrEmpty(material) ? "copper" : material.ToLowerInvariant();
+        }
+
+        internal static float GetLensLightLevel()
+        {
+            try
+            {
+                var world = capi?.World;
+                var entity = world?.Player?.Entity;
+                if (world == null || entity == null || world.BlockAccessor == null)
+                    return 1f;
+
+                var light = world.BlockAccessor.GetLightRGBs(entity.Pos.AsBlockPos);
+                float blockLight = Math.Max(light.X, Math.Max(light.Y, light.Z));
+                return Math.Max(0.2f, Math.Min(1.15f, Math.Max(blockLight, light.W)));
+            }
+            catch
+            {
+                return 1f;
+            }
+        }
+
+        internal static float GetOpticalFeedback()
+        {
+            float amount = Math.Max(0f, Math.Min(1f, getPercentZoomed()));
+            // A barely perceptible breathing/glass response keeps the lens alive
+            // without adding camera shake or motion sickness.
+            return 1f + (float)Math.Sin(SpyglassMod.gameRuntime * 2.2) * 0.012f * amount;
+        }
+
         public static bool AttemptingToZoom()
         {
             // validate if we can in fact, zoom.
@@ -117,7 +176,7 @@ namespace spyglass.src
                     ItemSlot itemSlot = inv[slotIndex];
 
                     AssetLocation code = itemSlot?.Itemstack?.Item?.Code;
-                    if (code != null && code.BeginsWith("spyglass", "spyglass-"))
+                    if (code != null && code.BeginsWith(SpyglassMod.ModId, "spyglass-"))
                     {
                         return SpyglassMod.zoomed;
                     }
@@ -129,11 +188,13 @@ namespace spyglass.src
 
         public static bool HideGuis()
         {
-            return isZoomed && getPercentZoomed() > 0.01;
+            return EnableEffect() && isZoomed && getPercentZoomed() > 0.01;
         }
 
         public static float getPercentZoomed()
         {
+            if (zoomAnimation == null)
+                return 0f;
             if (isZoomed != AttemptingToZoom())
             {
                 if (lastChange.ElapsedMilliseconds > SpyglassMod.config.minimumZoomTime)

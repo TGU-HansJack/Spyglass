@@ -8,15 +8,13 @@ namespace spyglass.src
 {
     public enum VignetteStyle
     {
-        circle, // what it says.
-        square, // what it says
-        box, // rather then a square it cuts off the edges keeping screen aspect ratio mostly intact.
-        edge
+        square,
+        none
     };
 
     class SpyglassConfig
     {
-        public String vignetteStyle = "edge";
+        public String vignetteStyle = "square";
 
         public int edgeSize = 32; // thickness of edge
         public float edgeOpacity = 0.5f; // transparency of edge
@@ -49,7 +47,7 @@ namespace spyglass.src
             }
             catch { }
 
-            return VignetteStyle.edge;
+            return VignetteStyle.square;
         }
     }
 }

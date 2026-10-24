@@ -1,0 +1,15 @@
+Spyglass Fork 0.6.3
+Vintage Story 1.22.3-1.22.7
+
+Based on Spyglass 0.6.1 by Fuami.
+Original project: https://github.com/fuami/Spyglass
+Original release page: https://mods.vintagestory.at/spyglass
+Fork author/maintainer: HansJack
+
+Copyright (c) 2021 Fuami
+Licensed under the MIT License. The original copyright notice and license
+are unchanged. The complete original license is included in LICENSE.
+
+Fork changes: third-person effect gating, synchronized vignette/HUD handling,
+optional Scribe HUD compatibility, player lifecycle guards and state cleanup,
+and independent spyglassfork identifiers, assets and configuration.

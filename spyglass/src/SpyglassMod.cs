@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -17,16 +17,21 @@ namespace spyglass.src
 {
     class SpyglassMod : ModSystem
     {
+        internal const string ModId = "spyglassfork";
+        internal const string ChannelName = ModId + "Channel";
         internal const float MIN_ZOOM = 0.8f;
         internal const float MAX_ZOOM = 1.0f;
 
         public static bool zoomed = false; // enabled by item.
         private static float zoomRatio = 0.0f; // adjusted via mouse-wheel while zoomed.
 
-        private static ClientManipulation clientLogic;
+        private ClientManipulation clientLogic;
+        private ICoreClientAPI clientApi;
+        private ZoomWheel zoomWheel;
+        private long? tickListenerId;
         internal static double gameRuntime = 0; // used by Util/ClientTime
 
-        private static string configFile = "spyglass.json";
+        private const string configFile = ModId + ".json";
         private static SpyglassConfig loadedConfig;
 
         internal static float getZoomRatio()
@@ -72,28 +77,32 @@ namespace spyglass.src
                 api.StoreModConfig<SpyglassConfig>(loadedConfig, configFile);
             }
 
-            api.RegisterItemClass("spyglass:ItemSpyglass", typeof(ItemSpyglass));
+            api.RegisterItemClass(ModId + ":ItemSpyglass", typeof(ItemSpyglass));
         }
 
         public override void StartClientSide(ICoreClientAPI api)
         {
+            clientApi = api;
+            gameRuntime = 0;
             clientLogic = new ClientManipulation(api);
-            api.Network.RegisterChannel("spyglassChannel")
+            api.Network.RegisterChannel(ChannelName)
                 .RegisterMessageType(typeof(ServerConfigSyncPacket))
                 .SetMessageHandler<ServerConfigSyncPacket>(serverConfig =>
                 {
                     loadedConfig.vignetteStyle = serverConfig.vignetteStyle.ToString();
                     loadedConfig.edgeOpacity = serverConfig.edgeOpacity;
                     loadedConfig.edgeSize = serverConfig.edgeSize;
+                    zoomWheel?.RequestRecompose();
                 });
-            api.Gui.RegisterDialog(new[]{ new ZoomWheel(api) });
-            api.Event.RegisterGameTickListener(OnGameTick, 4); // 250 max fps - This is a simple light weight add too, so shouldn't make a diffrence.
+            zoomWheel = new ZoomWheel(api);
+            api.Gui.RegisterDialog(zoomWheel);
+            tickListenerId = api.Event.RegisterGameTickListener(OnGameTick, 4);
             setRatioToDefault();
         }
 
         public override void StartServerSide(ICoreServerAPI api)
         {
-            var serverNetworkChannel = api.Network.RegisterChannel("spyglassChannel")
+            var serverNetworkChannel = api.Network.RegisterChannel(ChannelName)
                 .RegisterMessageType(typeof(ServerConfigSyncPacket));
             api.Event.PlayerJoin += byPlayer =>
             {
@@ -116,11 +125,20 @@ namespace spyglass.src
 
         public override void Dispose()
         {
+            if (tickListenerId.HasValue)
+            {
+                clientApi.Event.UnregisterGameTickListener(tickListenerId.Value);
+                tickListenerId = null;
+            }
             if ( clientLogic != null )
             {
                 clientLogic.Dispose();
                 clientLogic = null;
             }
+            zoomWheel?.Dispose();
+            zoomWheel = null;
+            clientApi = null;
+            base.Dispose();
         }
 
     }

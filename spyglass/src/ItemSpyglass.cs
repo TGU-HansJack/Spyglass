@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -14,13 +14,13 @@ namespace spyglass.src
     {
         public override string GetHeldTpUseAnimation(ItemSlot activeHotbarSlot, Entity byEntity)
         {
-            return "spyglassing";
+            return SpyglassMod.ModId + "-spyglassing";
         }
 
         public override WorldInteraction[] GetHeldInteractionHelp( ItemSlot inSlot )
         {
             WorldInteraction worldInteraction = new WorldInteraction();
-            worldInteraction.ActionLangCode = "spyglass:item-spyglass-use";
+            worldInteraction.ActionLangCode = SpyglassMod.ModId + ":item-spyglass-use";
             worldInteraction.MouseButton = EnumMouseButton.Right;
 
             return new WorldInteraction[] { worldInteraction }.Append(base.GetHeldInteractionHelp(inSlot));

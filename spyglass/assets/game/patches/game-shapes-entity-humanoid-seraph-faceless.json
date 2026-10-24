@@ -5,7 +5,7 @@
     "value":
       {
         "name": "Spyglassing",
-        "code": "spyglassing",
+        "code": "spyglassfork-spyglassing",
         "quantityframes": 15,
         "onActivityStopped": "EaseOut",
         "onAnimationEnd": "Repeat",

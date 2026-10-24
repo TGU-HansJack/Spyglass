@@ -3,8 +3,8 @@
     "op": "add",
     "path": "/client/animations/-",
     "value": {
-      "code": "spyglassing",
-      "animation": "spyglassing",
+      "code": "spyglassfork-spyglassing",
+      "animation": "spyglassfork-spyglassing",
       "animationSpeed": 1.2,
       "blendMode": "Add",
       "weight": 200,

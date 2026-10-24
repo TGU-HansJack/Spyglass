@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -17,7 +17,7 @@ namespace spyglass.src.Client.Patches
 
         public static bool LoadIsRender(Entity ent)
         {
-            if ( ent is EntityPlayer && ClientManipulation.IsLocalPlayer((EntityPlayer)ent))
+            if (ClientManipulation.EnableEffect() && ent is EntityPlayer && ClientManipulation.IsLocalPlayer((EntityPlayer)ent))
             {
                 if (ClientManipulation.getPercentZoomed() > 0.01 || ClientManipulation.AttemptingToZoom())
                 {
@@ -27,12 +27,12 @@ namespace spyglass.src.Client.Patches
 
             return ent.IsRendered;
         }
-        
+
         public static IEnumerable<CodeInstruction> ImmersiveFpMode_Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator g)
         {
             List<CodeInstruction> output = new List<CodeInstruction>();
             FieldInfo IsRendered = typeof(Entity).GetField("IsRendered", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-            
+
             foreach (CodeInstruction ci in instructions)
             {
                 if ( ci.opcode == OpCodes.Ldfld && (FieldInfo)ci.operand == IsRendered)

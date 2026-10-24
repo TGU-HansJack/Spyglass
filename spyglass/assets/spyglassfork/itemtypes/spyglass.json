@@ -1,6 +1,6 @@
 {
 	"code": "spyglass",
-	"class": "spyglass:ItemSpyglass",
+	"class": "spyglassfork:ItemSpyglass",
 	"attributes": {
 		"displaycaseable": true,
 		"shelvable": true,
