@@ -16,8 +16,8 @@ namespace spyglass.src
     {
         public String vignetteStyle = "square";
 
-        public int edgeSize = 32; // thickness of edge
-        public float edgeOpacity = 0.5f; // transparency of edge
+        public int edgeSize = 20; // thickness of the metal rim in screen pixels
+        public float edgeOpacity = 0.5f; // opacity of the metal rim; the outside eye-cup is always opaque
 
         public float glassBrightness = 1.0f; // less then 1.0, will dim the view when using spyglass
         public float glassColor = 0.94f; // the brightness of the glass material, by default this is nearly white like quartz.

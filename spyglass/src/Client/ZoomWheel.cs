@@ -14,6 +14,7 @@ namespace spyglass.src.Client
     {
 		private double lastAppearanceCheck;
 		private float lastLensLight = 1f;
+		private float lastOpticalFeedback = 1f;
 		private string lastLensMaterial;
 
         public ZoomWheel(ICoreClientAPI capi) : base(capi)
@@ -31,10 +32,12 @@ namespace spyglass.src.Client
 			{
 				lastAppearanceCheck = SpyglassMod.gameRuntime;
 				float currentLight = ClientManipulation.GetLensLightLevel();
+				float currentFeedback = ClientManipulation.GetOpticalFeedback();
 				string currentMaterial = ClientManipulation.GetHeldSpyglassMaterial();
-				if (Math.Abs(currentLight - lastLensLight) > 0.025f || currentMaterial != lastLensMaterial)
+				if (Math.Abs(currentLight - lastLensLight) > 0.025f || Math.Abs(currentFeedback - lastOpticalFeedback) > 0.002f || currentMaterial != lastLensMaterial)
 				{
 					lastLensLight = currentLight;
+					lastOpticalFeedback = currentFeedback;
 					lastLensMaterial = currentMaterial;
 					RequestRecompose();
 				}
@@ -47,12 +50,9 @@ namespace spyglass.src.Client
 				return;
 			}
 
-			float light = ClientManipulation.GetLensLightLevel();
-			float opticalFeedback = ClientManipulation.GetOpticalFeedback();
-			SingleComposer.Color.W = Math.Max(0f, Math.Min(1f, percent * SpyglassMod.config.edgeOpacity * opticalFeedback));
-			SingleComposer.Color.X = Math.Max(0f, Math.Min(1f, 0.96f + light * 0.04f));
-			SingleComposer.Color.Y = Math.Max(0f, Math.Min(1f, 0.96f + light * 0.04f));
-			SingleComposer.Color.Z = Math.Max(0f, Math.Min(1f, 0.96f + light * 0.04f));
+			// The outer eye-cup must be opaque. Applying edgeOpacity here would make
+			// the whole element translucent, including the area outside the lens.
+			SingleComposer.Color.W = Math.Max(0f, Math.Min(1f, percent));
 		}
 
 		public override GuiComposer adjustCompose(GuiComposer composer)
@@ -62,7 +62,7 @@ namespace spyglass.src.Client
 			if (style == VignetteStyle.none)
 				return composer;
 
-            return composer.AddInteractiveElement(new SpyglassOverlay(capi, ElementBounds.Fill, SpyglassMod.config.edgeSize, SpyglassMod.config.glassColor, SpyglassMod.config.glassBrightness, style, ClientManipulation.GetHeldSpyglassMaterial(), ClientManipulation.GetLensLightLevel()));
+            return composer.AddInteractiveElement(new SpyglassOverlay(capi, ElementBounds.Fill, SpyglassMod.config.edgeSize, SpyglassMod.config.glassColor, SpyglassMod.config.glassBrightness, SpyglassMod.config.edgeOpacity, ClientManipulation.GetOpticalFeedback(), style, ClientManipulation.GetHeldSpyglassMaterial(), ClientManipulation.GetLensLightLevel()));
 		}
 
 		public override void OnMouseWheel(MouseWheelEventArgs args)

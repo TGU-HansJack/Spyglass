@@ -12,8 +12,10 @@ namespace spyglass.src.Client
         private readonly VignetteStyle style;
         private readonly string material;
         private readonly float lightLevel;
+        private readonly float edgeOpacity;
+        private readonly float opticalFeedback;
 
-        public SpyglassOverlay(ICoreClientAPI capi, ElementBounds bounds, int edgeSize, float glassColor, float glassBrightness, VignetteStyle style, string material, float lightLevel) : base(capi, bounds)
+        public SpyglassOverlay(ICoreClientAPI capi, ElementBounds bounds, int edgeSize, float glassColor, float glassBrightness, float edgeOpacity, float opticalFeedback, VignetteStyle style, string material, float lightLevel) : base(capi, bounds)
         {
             this.edgeSize = edgeSize;
             this.glassColor = glassColor;
@@ -21,6 +23,8 @@ namespace spyglass.src.Client
             this.style = style;
             this.material = material;
             this.lightLevel = Math.Max(0.2f, Math.Min(1.15f, lightLevel));
+            this.edgeOpacity = Math.Max(0f, Math.Min(1f, edgeOpacity));
+            this.opticalFeedback = Math.Max(0.98f, Math.Min(1.02f, opticalFeedback));
         }
 
         public override void ComposeElements(Context ctx, ImageSurface surface)
@@ -50,10 +54,38 @@ namespace spyglass.src.Client
                         ctx.FillRule = FillRule.EvenOdd;
                         ctx.Fill();
 
+                        DrawLensSurface(ctx, x, y, size);
                         DrawMaterialContour(ctx, x, y, size);
                         break;
                     }
             }
+        }
+
+        private void DrawLensSurface(Context ctx, double x, double y, double size)
+        {
+            // A real lens is not a second translucent screen. Keep the scene clear,
+            // then add only a barely visible glass tint and a restrained reflection.
+            double tintAlpha = Math.Max(0.008, Math.Min(0.045, (1.0 - glassBrightness) * 0.12 + 0.018));
+            ctx.SetSourceRGBA(Math.Min(1.0, glassColor + 0.03), Math.Min(1.0, glassColor + 0.04), Math.Min(1.0, glassColor + 0.06), tintAlpha);
+            ctx.Rectangle(x, y, size, size);
+            ctx.Fill();
+
+            double reflectionAlpha = Math.Max(0.018, Math.Min(0.065, 0.035 * opticalFeedback * lightLevel));
+            double inset = Math.Max(7.0, size * 0.045);
+            double reflectionLength = size * 0.23;
+            ctx.LineWidth = Math.Max(1.0, size * 0.0012);
+            ctx.SetSourceRGBA(0.88, 0.94, 1.0, reflectionAlpha);
+            ctx.MoveTo(x + inset, y + inset + reflectionLength * 0.30);
+            ctx.LineTo(x + inset + reflectionLength, y + inset);
+            ctx.Stroke();
+
+            // The opposite edge receives a much weaker internal shadow, giving the
+            // square aperture depth without tinting the opaque outside mask.
+            ctx.LineWidth = Math.Max(1.0, size * 0.0015);
+            ctx.SetSourceRGBA(0.02, 0.03, 0.04, reflectionAlpha * 0.75);
+            ctx.MoveTo(x + size - inset - reflectionLength, y + size - inset);
+            ctx.LineTo(x + size - inset, y + size - inset - reflectionLength * 0.30);
+            ctx.Stroke();
         }
 
         private void DrawMaterialContour(Context ctx, double x, double y, double size)
@@ -65,21 +97,21 @@ namespace spyglass.src.Client
             // Three nested strokes form a bevelled metal outline instead of a flat
             // gradient: dark underside, material body, then a narrow lit edge.
             ctx.LineWidth = width * 2.2;
-            ctx.SetSourceRGBA(red * 0.28, green * 0.28, blue * 0.28, 1.0);
+            ctx.SetSourceRGBA(red * 0.28, green * 0.28, blue * 0.28, edgeOpacity);
             StrokeRectangle(ctx, x, y, size);
 
             using (var materialGradient = new LinearGradient(x, y, x + size, y + size))
             {
-                materialGradient.AddColorStop(0.0, new Color(Math.Min(1, red * (0.75 + light * 0.25)), Math.Min(1, green * (0.75 + light * 0.25)), Math.Min(1, blue * (0.75 + light * 0.25)), 1));
-                materialGradient.AddColorStop(0.48, new Color(red, green, blue, 1));
-                materialGradient.AddColorStop(1.0, new Color(red * 0.35, green * 0.35, blue * 0.35, 1));
+                materialGradient.AddColorStop(0.0, new Color(Math.Min(1, red * (0.75 + light * 0.25)), Math.Min(1, green * (0.75 + light * 0.25)), Math.Min(1, blue * (0.75 + light * 0.25)), edgeOpacity));
+                materialGradient.AddColorStop(0.48, new Color(red, green, blue, edgeOpacity));
+                materialGradient.AddColorStop(1.0, new Color(red * 0.35, green * 0.35, blue * 0.35, edgeOpacity));
                 ctx.LineWidth = width;
                 ctx.SetSource(materialGradient);
                 StrokeRectangle(ctx, x, y, size);
             }
 
             ctx.LineWidth = Math.Max(1.0, width * 0.22);
-            ctx.SetSourceRGBA(Math.Min(1, red + 0.34 * light), Math.Min(1, green + 0.34 * light), Math.Min(1, blue + 0.34 * light), 0.85);
+            ctx.SetSourceRGBA(Math.Min(1, red + 0.34 * light), Math.Min(1, green + 0.34 * light), Math.Min(1, blue + 0.34 * light), edgeOpacity * 0.9);
             ctx.MoveTo(x + width * 0.5, y + width * 0.5);
             ctx.LineTo(x + size - width * 0.5, y + width * 0.5);
             ctx.MoveTo(x + width * 0.5, y + width * 0.5);

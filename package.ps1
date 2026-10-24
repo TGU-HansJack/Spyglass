@@ -34,6 +34,8 @@ try {
             Remove-Item -Force
     }
     Copy-Item -LiteralPath $packagePath -Destination (Join-Path $deployDirectory.Path ([System.IO.Path]::GetFileName($packagePath))) -Force
+    $hash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -LiteralPath ($packagePath + '.sha256') -Value ($hash + '  ' + [System.IO.Path]::GetFileName($packagePath)) -NoNewline
     Get-Item -LiteralPath $packagePath
     Get-FileHash -LiteralPath $packagePath -Algorithm SHA256
 } finally {
