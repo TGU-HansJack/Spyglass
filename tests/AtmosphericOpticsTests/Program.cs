@@ -98,6 +98,8 @@ Check(merging.Drops[0].X == .5f && merging.Drops[0].Y == .5f, "merging does not 
 var wet = new LensRainModel();
 for (int i = 0; i < 1800; i++) wet.Update(1f / 60, 1);
 Check(wet.HasWater && wet.Drops.Count <= LensRainModel.MaxDrops, "rain leaves a bounded set of surface beads");
+Check(wet.Drops.Count >= 45, "sustained rain maintains dozens of stationary beads rather than a sparse dozen");
+Check(wet.Drops.Count(d => d.Radius < .012f) >= 15, "dense rainfall retains numerous small beads instead of giant merged spots");
 for (int i = 0; i < 3600; i++) wet.Update(1f / 60, 0);
 Check(!wet.HasWater, "surface beads evaporate within a minute after rain stops");
 var frost = new LensRainModel();
@@ -329,6 +331,16 @@ GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, 0f);
 var refractedPattern = Render(coefficient: 0);
 Check(Enumerable.Range(0, Size * Size).Any(i => Math.Abs(refractedPattern[i * 4] - plainPattern[i * 4]) > .025f),
     "GPU frost refracts a patterned background even with reflection unlit");
+GL.Uniform1(U("frostCount"), 0);
+var patternBead = new LensRainModel(); patternBead.AddDrop(.5f, .5f, .024f); patternBead.Update(1f / 60, 0);
+UploadWater(patternBead); F("lensRainStrength", 1);
+var beadPattern = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size * Size).Any(i => Math.Abs(beadPattern[i * 4] - plainPattern[i * 4]) > .08f),
+    "GPU optical bead actually magnifies or displaces background detail");
+patternBead.Clear(); UploadWater(patternBead);
+GL.Uniform1(U("frostCount"), 1);
+GL.Uniform4(U("frostCrystals"), .012f, .5f, .30f, 1f);
+GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, 0f);
 GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, 1, 1, 0, PixelFormat.Rgba, PixelType.Float, new[] {0f, 0f, 0f, .7f});
 var unlitIce = Render(coefficient: 0);
 Check(Enumerable.Range(0, Size * Size).All(i => unlitIce[i * 4] == 0), "GPU unlit ice does not paint light onto a black background");
@@ -336,6 +348,48 @@ GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, 1, 1, 0, 
 F("lensLight", 1);
 GL.Uniform1(U("frostCount"), 0);
 F("lensRainStrength", 0);
+
+// Bright sky contains no detail for refraction to displace. Test RGB contrast
+// against the background itself, not alpha or against a dark foliage screenshot.
+void SolidScene(float value)
+{
+    GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, scene);
+    GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, 1, 1, 0, PixelFormat.Rgba, PixelType.Float,
+        new[] {value, value, value, .7f});
+}
+foreach (float background in new[] { .82f, .95f, 1f })
+{
+    SolidScene(background);
+    UploadWater(onlyBead);
+    // onlyBead was cleared above; populate a fresh stationary dome.
+    var brightBead = new LensRainModel(); brightBead.AddDrop(.5f, .5f, .024f); brightBead.Update(1f / 60, 0);
+    UploadWater(brightBead); F("lensRainStrength", 1); F("lensLight", 1);
+    var skyBead = Render(float.PositiveInfinity, coefficient: 0);
+    Check(Enumerable.Range(0, Size * Size).Any(i => skyBead[i * 4] < background - .08f),
+        $"GPU bead contact rim remains visible on uniform bright sky {background}");
+    var sunlitBead = Render(float.PositiveInfinity, coefficient: 0, glare: .2f);
+    Check(Enumerable.Range(0, Size * Size).Any(i => sunlitBead[i * 4] < background - .06f),
+        $"GPU solar glare does not wash out bead contrast on sky {background}");
+    Near(Pixel(skyBead, 2, 2), background, "GPU bead rim does not tint the surrounding bright sky");
+    Near(skyBead[(32 * Size + 32) * 4 + 3], .7f, "GPU bright-sky bead preserves scene alpha");
+    brightBead.Clear(); UploadWater(brightBead);
+    GL.Uniform1(U("frostCount"), 1);
+    GL.Uniform4(U("frostCrystals"), .012f, .5f, .38f, 1f);
+    GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, 0f);
+    var skyIce = Render(float.PositiveInfinity, coefficient: 0, glare: .2f);
+    Check(Enumerable.Range(0, Size * Size).Count(i => skyIce[i * 4] < background - .025f) >= 8,
+        $"GPU feathered ice has visible dark facet boundaries on bright sky {background}");
+    Check(Enumerable.Range(0, Size * Size).All(i => skyIce[i * 4] >= background * .50f),
+        "GPU frost retains transmission on a bright uniform background");
+    GL.Uniform1(U("frostCount"), 0);
+}
+SolidScene(0); UploadWater(onlyBead);
+onlyBead.AddDrop(.5f, .5f, .024f); onlyBead.Update(1f / 60, 0); UploadWater(onlyBead);
+F("lensLight", 0);
+var unlitBead = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size * Size).All(i => unlitBead[i * 4] == 0), "GPU denser optical beads never self-illuminate black glass");
+onlyBead.Clear(); UploadWater(onlyBead);
+SolidScene(.2f); F("lensLight", 1); F("lensRainStrength", 0);
 
 GL.Enable(EnableCap.DepthTest); GL.Enable(EnableCap.Blend); GL.Enable(EnableCap.CullFace); GL.DepthMask(true);
 GL.BlendFuncSeparate(BlendingFactorSrc.SrcAlpha, BlendingFactorDest.OneMinusSrcAlpha, BlendingFactorSrc.One, BlendingFactorDest.Zero);

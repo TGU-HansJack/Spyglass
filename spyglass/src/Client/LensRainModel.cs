@@ -6,7 +6,7 @@ namespace spyglass.src.Client
     // Lens coordinates run from top-left to bottom-right. Surface beads never move.
     internal sealed class LensRainModel
     {
-        internal const int MaxDrops = 12, MaxFrost = 2;
+        internal const int MaxDrops = 80, MaxFrost = 2;
         internal const float MaxDropRadius = .024f;
         internal sealed class Drop
         {
@@ -40,7 +40,7 @@ namespace spyglass.src.Client
             Drops.Add(new Drop
             {
                 X = Math.Clamp(x, .03f, .97f), Y = Math.Clamp(y, .03f, .97f),
-                Radius = Math.Clamp(radius, .005f, MaxDropRadius),
+                Radius = Math.Clamp(radius, .0035f, MaxDropRadius),
                 Shape = .93f + (float)waterRandom.NextDouble() * .22f,
                 Seed = (float)waterRandom.NextDouble(), Fade = 1
             });
@@ -63,13 +63,13 @@ namespace spyglass.src.Client
         {
             for (int i = Drops.Count - 1; i >= 0; i--)
                 if ((Drops[i].Fade -= dt / (rain > 0 ? 90f : 45f)) <= 0) Drops.RemoveAt(i);
-            spawn += dt * rain * 3;
+            spawn += dt * rain * 16;
             while (spawn >= 1)
             {
                 spawn--;
                 AddDrop(.04f + (float)waterRandom.NextDouble() * .92f,
                     .04f + (float)waterRandom.NextDouble() * .92f,
-                    .006f + (float)waterRandom.NextDouble() * .012f);
+                    .004f + MathF.Pow((float)waterRandom.NextDouble(), 1.7f) * .012f);
             }
             for (int i = 0; i < Drops.Count; i++)
             for (int j = Drops.Count - 1; j > i; j--)

@@ -51,3 +51,16 @@ print(overlays / "glass-comparison.png")
 print(overlays / "lens-beads.gif")
 print(overlays / "lens-frost-refraction.png")
 print(overlays / "lens-frost-refraction-growth.gif")
+
+visibility = Image.new("RGB", (1100, 1518), (25, 25, 25))
+draw = ImageDraw.Draw(visibility)
+draw.text((16, 10), "亮背景可见度 · 实际 GLSL 离屏输出（非实机截图）", font=font, fill="white")
+for row, (background, title) in enumerate([("foliage", "树叶"), ("fog", "亮雾"), ("sky", "天空"), ("sun", "太阳眩光 / 接近纯白")]):
+    for col, (effect, label) in enumerate([("clear", "无表面效果"), ("beads", "密集静止水珠"), ("ice", "透光冰层")]):
+        raw = Image.open(optics / f"visibility-{background}-{effect}.ppm").convert("RGBA")
+        image = Image.alpha_composite(raw, overlay).resize((350, 350))
+        x, y = col * 365 + 10, row * 365 + 55
+        visibility.paste(image, (x, y))
+        draw.text((x, y - 24), title + " / " + label, font=font, fill="white")
+visibility.save(overlays / "surface-bright-backgrounds-v078.png")
+print(overlays / "surface-bright-backgrounds-v078.png")

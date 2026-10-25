@@ -121,6 +121,47 @@ internal static class OpticsPreview
             stream.Write(System.Text.Encoding.ASCII.GetBytes($"P6\n{side} {side}\n255\n"));
             for (int y = side - 1; y >= 0; y--) stream.Write(pixels, y * side * 3, side * 3);
         }
+        // Uniform sky/fog and glare are deliberately included: foliage alone
+        // hides the loss of surface contrast in the old shading.
+        var denseBeads = new LensRainModel();
+        for (int tick = 0; tick < 600; tick++) denseBeads.Update(1f / 60, 1);
+        var completeFrost = new LensRainModel();
+        for (int tick = 0; tick < 2400; tick++) completeFrost.Update(1f / 60, 0, true);
+        foreach (string background in new[] { "foliage", "fog", "sky", "sun" })
+        {
+            var backdrop = new byte[size * size * 4];
+            if (background == "foliage") Array.Copy(input, backdrop, input.Length);
+            else for (int y = 0; y < size; y++) for (int x = 0; x < size; x++)
+            {
+                int j = (y * size + x) * 4;
+                float v = y / (float)(size - 1);
+                float baseValue = background == "fog" ? .86f + .10f * v : background == "sun" ? .98f : .77f + .14f * v;
+                backdrop[j] = (byte)(baseValue * 255);
+                backdrop[j + 1] = (byte)(Math.Min(1, baseValue + (background == "sky" ? .045f : .01f)) * 255);
+                backdrop[j + 2] = (byte)(Math.Min(1, baseValue + (background == "sky" ? .10f : .02f)) * 255);
+                backdrop[j + 3] = 255;
+            }
+            GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, scene);
+            GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, size, size, 0, PixelFormat.Rgba, PixelType.UnsignedByte, backdrop);
+            F("glareStrength", background == "sun" ? .20f : 0);
+            F("extinction", 0); F("lensLight", 1);
+            foreach (string effect in new[] { "clear", "beads", "ice" })
+            {
+                F("lensRainStrength", 1);
+                GL.Uniform1(U("rainDropCount"), effect == "beads" ? denseBeads.Drops.Count : 0);
+                GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, denseBeads.DropUniforms);
+                GL.Uniform4(U("rainDropShapes"), LensRainModel.MaxDrops, denseBeads.DropShapeUniforms);
+                GL.Uniform1(U("frostCount"), effect == "ice" ? completeFrost.Crystals.Count : 0);
+                GL.Uniform4(U("frostCrystals"), LensRainModel.MaxFrost, completeFrost.FrostUniforms);
+                GL.Uniform4(U("frostDetails"), LensRainModel.MaxFrost, completeFrost.FrostDetailUniforms);
+                GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
+                var pixels = new byte[side * side * 3];
+                GL.ReadPixels(origin, origin, side, side, PixelFormat.Rgb, PixelType.UnsignedByte, pixels);
+                using var stream = File.Create(Path.Combine(directory, $"visibility-{background}-{effect}.ppm"));
+                stream.Write(System.Text.Encoding.ASCII.GetBytes($"P6\n{side} {side}\n255\n"));
+                for (int y = side - 1; y >= 0; y--) stream.Write(pixels, y * side * 3, side * 3);
+            }
+        }
         var previewError = GL.GetError();
         if (previewError != ErrorCode.NoError) throw new InvalidOperationException("Preview OpenGL error: " + previewError);
         GL.DeleteFramebuffer(framebuffer);
