@@ -84,6 +84,7 @@ var merging = new LensRainModel();
 merging.AddDrop(.5f, .3f, .012f); merging.AddDrop(.51f, .3f, .012f);
 merging.Update(1f / 60, 0);
 Check(merging.Drops.Count == 1 && merging.Drops[0].Radius > .016f, "touching beads merge into a larger drop");
+Check(merging.Drops[0].Radius <= .028f, "merged drops stay below the visual size cap");
 float initialY = merging.Drops[0].Y;
 for (int i = 0; i < 180; i++) merging.Update(1f / 60, 0);
 Check(merging.Drops.Count == 1 && merging.Drops[0].Y > initialY + .1f, "large beads slide down under gravity");
@@ -101,7 +102,7 @@ Check(wet.HasWater && wet.Pool > .005f && wet.Pool <= .055f, "sustained rain acc
 Check(wet.Drops.Count <= LensRainModel.MaxDrops && wet.Beads.Count <= LensRainModel.MaxDrops && wet.Trails.Count <= LensRainModel.MaxTrails, "water simulation has bounded drop, bead and trail counts");
 wet.Update(1f / 60, 0);
 Check(wet.HasWater, "entering shelter stops new rain without erasing existing water");
-for (int i = 0; i < 7200; i++) wet.Update(1f / 60, 0);
+for (int i = 0; i < 18000; i++) wet.Update(1f / 60, 0);
 Check(!wet.HasWater, "sheltered lens dries after runoff and evaporation");
 var rate30 = new LensRainModel(); var rate60 = new LensRainModel();
 for (int i = 0; i < 600; i++) rate30.Update(1f / 30, 1);

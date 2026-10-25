@@ -7,7 +7,8 @@ namespace spyglass.src.Client
     // keep merging, gravity and drainage independent of render frame rate.
     internal sealed class LensRainModel
     {
-        internal const int MaxDrops = 32, MaxTrails = 48;
+        internal const int MaxDrops = 32, MaxTrails = 96;
+        private const float MaxDropRadius = .028f;
         internal sealed class Drop
         {
             internal float X, Y, Radius, Speed, StartY, Drift, LastTrailX, LastTrailY, NextTrail, Pause, Phase;
@@ -52,7 +53,7 @@ namespace spyglass.src.Client
                     float dx = drop.X - x, dy = drop.Y - y, d = dx * dx + dy * dy;
                     if (d < distance) { nearest = drop; distance = d; }
                 }
-                nearest.Radius = MathF.Sqrt(nearest.Radius * nearest.Radius + radius * radius);
+                nearest.Radius = Math.Min(MaxDropRadius, MathF.Sqrt(nearest.Radius * nearest.Radius + radius * radius));
                 return;
             }
             float startY = Math.Clamp(y, 0, 1);
@@ -132,7 +133,7 @@ namespace spyglass.src.Client
                     a.Drift = 0;
                     a.NextTrail = Math.Min(a.NextTrail, b.NextTrail);
                     a.Pause = Math.Max(a.Pause, b.Pause);
-                    a.Radius = MathF.Sqrt(ma + mb);
+                    a.Radius = Math.Min(MaxDropRadius, MathF.Sqrt(ma + mb));
                     a.Speed = Math.Max(a.Speed, b.Speed);
                     Drops.RemoveAt(j);
                 }
@@ -162,7 +163,7 @@ namespace spyglass.src.Client
                         float width = d.Radius * (.18f + (float)random.NextDouble() * .48f);
                         AddTrail(d.LastTrailX, d.LastTrailY, d.X, d.Y, width,
                             width * (.65f + (float)random.NextDouble() * .8f),
-                            12f + (float)random.NextDouble() * 18f);
+                            120f + (float)random.NextDouble() * 120f);
                         if (random.NextDouble() < .55 && Beads.Count < MaxDrops)
                             Beads.Add(new Bead
                             {
@@ -198,7 +199,16 @@ namespace spyglass.src.Client
 
         private void AddTrail(float xTop, float top, float xBottom, float bottom, float widthTop, float widthBottom, float life)
         {
-            if (Trails.Count == MaxTrails) Trails.RemoveAt(0);
+            var existing = Trails.Find(t => Math.Abs(t.XBottom - xTop) < .006f
+                && Math.Abs(t.Bottom - top) < .045f);
+            if (existing != null)
+            {
+                existing.Bottom = Math.Max(existing.Bottom, bottom);
+                existing.WidthBottom = Math.Max(existing.WidthBottom, widthBottom);
+                existing.Life = Math.Max(existing.Life, life);
+                return;
+            }
+            if (Trails.Count == MaxTrails) return;
             Trails.Add(new Trail
             {
                 XTop = Math.Clamp(xTop, .005f, .995f), XBottom = Math.Clamp(xBottom, .005f, .995f),

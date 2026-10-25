@@ -20,7 +20,7 @@ uniform int rainBeadCount;
 uniform int rainTrailCount;
 uniform vec4 rainDrops[32];
 uniform vec4 rainBeads[32];
-uniform vec4 rainTrails[96];
+uniform vec4 rainTrails[192];
 uniform float rainPool;
 uniform vec2 rainInset;
 uniform float flickProgress;

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>spyglassfork</AssemblyName>
-    <Version>0.7.0</Version>
+    <Version>0.7.1</Version>
     <Authors>Fuami;HansJack</Authors>
     <Copyright>Copyright (c) 2021 Fuami</Copyright>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
