@@ -53,7 +53,7 @@ namespace spyglass.src.Client
             Drops.Add(new Drop
             {
                 X = Math.Clamp(x, 0, 1), Y = startY, StartY = startY, LastTrailX = Math.Clamp(x, 0, 1), LastTrailY = startY,
-                Radius = radius, Drift = (float)(random.NextDouble() - .5) * .045f,
+                Radius = radius, Drift = (float)(random.NextDouble() - .5) * .12f,
                 NextTrail = .012f + (float)random.NextDouble() * .022f,
                 Pause = .04f + (float)random.NextDouble() * .20f,
                 Phase = (float)random.NextDouble() * 6.2831855f
@@ -83,7 +83,7 @@ namespace spyglass.src.Client
                 TrailUniforms[j] = t.XTop; TrailUniforms[j + 1] = t.XBottom;
                 TrailUniforms[j + 2] = t.Top; TrailUniforms[j + 3] = t.Bottom;
                 TrailUniforms[j + 4] = t.WidthTop; TrailUniforms[j + 5] = t.WidthBottom;
-                TrailUniforms[j + 6] = t.Life / 2.5f; TrailUniforms[j + 7] = t.Gap;
+                TrailUniforms[j + 6] = t.Life / 30f; TrailUniforms[j + 7] = t.Gap;
             }
         }
 
@@ -140,16 +140,17 @@ namespace spyglass.src.Client
                         {
                             d.Pause = .025f + (float)random.NextDouble() * .13f;
                             d.Speed *= .35f;
+                            d.Drift = Math.Clamp(d.Drift + ((float)random.NextDouble() - .5f) * .12f, -.14f, .14f);
                         }
                     }
-                    d.Drift = Math.Clamp(d.Drift + ((float)random.NextDouble() - .5f) * dt * .012f, -.045f, .045f);
-                    d.X = Math.Clamp(d.X + d.Drift * dt * (.35f + d.Speed * 2), .015f, .985f);
+                    d.Drift = Math.Clamp(d.Drift + ((float)random.NextDouble() - .5f) * dt * .028f, -.14f, .14f);
+                    d.X = Math.Clamp(d.X + d.Drift * dt * (.75f + d.Speed * 3), .015f, .985f);
                     if (d.Y - d.LastTrailY >= d.NextTrail && d.Y > d.LastTrailY)
                     {
                         float width = d.Radius * (.18f + (float)random.NextDouble() * .48f);
                         AddTrail(d.LastTrailX, d.LastTrailY, d.X, d.Y, width,
                             width * (.65f + (float)random.NextDouble() * .8f),
-                            .65f + (float)random.NextDouble() * 1.55f);
+                            12f + (float)random.NextDouble() * 18f);
                         d.LastTrailY = d.Y;
                         d.LastTrailX = d.X;
                         d.NextTrail = .010f + (float)random.NextDouble() * .027f;

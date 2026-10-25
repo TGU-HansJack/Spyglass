@@ -1,4 +1,4 @@
-# Spyglass Fork 0.6.7 兼容性验证
+# Spyglass Fork 0.6.8 兼容性验证
 
 验证日期：2026-10-25。模组 ID：`spyglassfork`。作者：Fuami、HansJack。
 基于 Spyglass 0.6.1，原项目：https://github.com/fuami/Spyglass 。

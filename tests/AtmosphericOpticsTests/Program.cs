@@ -91,7 +91,7 @@ Check(merging.Trails.Count > 0, "sliding beads leave persistent water trails");
 Check(merging.Trails.Any(t => t.WidthTop > 0 && t.WidthTop < .02f && t.WidthBottom != t.WidthTop), "water trails vary in pixel width");
 Check(merging.Trails.Any(t => Math.Abs(t.XBottom - t.XTop) > .0001f) || merging.Drops.Any(d => Math.Abs(d.Drift) > .001f),
     "water paths are not locked to a single vertical route");
-Check(merging.Drops.Any(d => d.Pause > 0) || merging.Trails.Any(t => t.Life < 2.5f),
+Check(merging.Drops.Any(d => d.Pause > 0) || merging.Trails.Any(t => t.Life > 8f),
     "water motion includes pauses and irregular trail lifetimes");
 for (int i = 0; i < 600; i++) merging.Update(1f / 60, 0);
 Check(merging.Drained > 0, "runoff reaches the bottom and drains away");
