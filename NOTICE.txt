@@ -13,8 +13,3 @@ are unchanged. The complete original license is included in LICENSE.
 Fork changes: third-person effect gating, synchronized vignette/HUD handling,
 optional Scribe HUD compatibility, player lifecycle guards and state cleanup,
 and independent spyglassfork identifiers, assets and configuration.
-
-Frost is generated as seeded optical prisms by the mod and its shader. No frost
-photograph, image texture, or decoded reference-image data is included in this
-release. The user-supplied frost image was used only as a visual reference for
-the feathered branching arrangement.

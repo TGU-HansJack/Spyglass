@@ -53,6 +53,14 @@ static class Regression
             && AccessTools.DeclaredMethod(modType, "OnMouseDown") == null
             && AccessTools.Method(logic, "CtrlHeld") == null, "manual wipe entry points and Ctrl mouse interception are removed");
 
+        var surfaceModel = T("Client.LensRainModel");
+        Check(surfaceModel.GetNestedType("Crystal", BindingFlags.NonPublic) == null
+            && surfaceModel.GetNestedType("IceFacet", BindingFlags.NonPublic) == null, "released assembly has no frost geometry types");
+        Check(surfaceModel.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
+            .All(field => !field.Name.Contains("Frost", StringComparison.OrdinalIgnoreCase))
+            && AccessTools.Field(T("Client.AtmosphericOpticsRenderer"), "frostConditions") == null,
+            "released assembly has no frost simulation state or cold-weather trigger");
+
         var harmony = new Harmony("spyglassfork-regression");
         try {
             foreach (var name in new[] { "OnBeforeRenderFrame3D", "Set3DProjection", "ImmersiveFpSystemRenderEntities", "OnMouseMove", "GuiDialogHudPatch", "OptionalHudPatches" }) {

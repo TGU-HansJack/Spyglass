@@ -18,11 +18,6 @@ uniform float lensLight;
 uniform int rainDropCount;
 uniform vec4 rainDrops[80];
 uniform vec4 rainDropShapes[80];
-uniform int frostCount;
-uniform vec4 frostCrystals[2];
-uniform vec4 frostDetails[2];
-uniform vec4 frostFacets[144];
-uniform vec4 frostFacetShapes[144];
 uniform vec2 rainInset;
 in vec2 texCoord;
 layout(location = 0) out vec4 outColor;
@@ -47,67 +42,10 @@ vec4 beadSurface(vec2 p)
     return surface;
 }
 
-// Shared water/ice lens response, matching the pre-v0.7.8 bead optics.
+// Rounded water lens response, matching the original bead optics.
 vec2 transmissionNormal(float thickness, vec2 physicalSize)
 {
     return vec2(dFdx(thickness), dFdy(thickness)) * physicalSize / 128.0;
-}
-
-// Each tapered crystal is actual analytic prism geometry with a triangular
-// cross-section. No image sampling, derivative-of-texture normal or white decal.
-// xy: screen-oriented facet normal, z: transparent coverage, w: ridge highlight.
-vec4 proceduralFrost(vec2 p, vec4 crystal, vec4 detail, int patchIndex, vec2 pixelSize)
-{
-    vec2 axis = vec2(cos(detail.x), sin(detail.x));
-    vec2 perpendicular = vec2(-axis.y, axis.x);
-    vec2 delta = p - crystal.xy;
-    vec2 q = vec2(dot(delta, axis), dot(delta, perpendicular)) / crystal.z;
-    if (q.x < -0.04 || q.x > 1.08 || abs(q.y) > 0.62 || detail.y <= 0.0) return vec4(0.0);
-    float aa = max(pixelSize.x, pixelSize.y) / crystal.z * 0.55;
-    vec4 result = vec4(0.0);
-    float strongest = 0.0;
-    for (int facetIndex = 0; facetIndex < 72; facetIndex++)
-    {
-        if (facetIndex >= int(detail.w)) break;
-        int index = patchIndex * 72 + facetIndex;
-        vec4 facet = frostFacets[index];
-        vec2 shape = frostFacetShapes[index].xy;
-        vec2 a = facet.xy, b = facet.zw;
-        float grown = clamp((detail.y - a.x) / max(b.x - a.x, 0.01), 0.0, 1.0);
-        if (grown <= 0.0) continue;
-        b = mix(a, b, grown);
-        vec2 direction = b - a;
-        float facetLength = length(direction);
-        if (facetLength < 0.0001) continue;
-        direction /= facetLength;
-        vec2 side = vec2(-direction.y, direction.x);
-        float distanceAlong = dot(q - a, direction);
-        float t = clamp(distanceAlong / facetLength, 0.0, 1.0);
-        float width = shape.x * (1.0 - t * 0.90);
-        float lateral = dot(q - a, side);
-        float extent = smoothstep(-aa, aa, distanceAlong)
-            * (1.0 - smoothstep(facetLength - aa, facetLength + aa, distanceAlong));
-        float coverage = (1.0 - smoothstep(max(0.0, width - aa), width + aa, abs(lateral))) * extent;
-        // Integrate subpixel twigs: fine ice must fade to partial coverage,
-        // not vanish or alias as the display size changes.
-        coverage *= clamp(width / max(aa, 0.0001), 0.0, 1.0) * crystal.w;
-        float ridge = exp(-abs(lateral) / max(width * 0.28, aa)) * coverage;
-        float across = clamp(1.0 - abs(lateral) / max(width + aa, 0.0001), 0.0, 1.0);
-        float roundedThickness = across * across * coverage * shape.y;
-        float score = roundedThickness;
-        if (score > strongest)
-        {
-            float slope = lateral / sqrt(lateral * lateral + aa * aa);
-            vec2 localNormal = side * slope * shape.y * 0.85 - direction * 0.10;
-            vec2 lensNormal = axis * localNormal.x + perpendicular * localNormal.y;
-            lensNormal.y = -lensNormal.y;
-            result.xy = lensNormal * coverage;
-            strongest = score;
-        }
-        result.z = max(result.z, score);
-        result.w = max(result.w, ridge * shape.y);
-    }
-    return result;
 }
 
 float hueChannel(float lo, float hi, float h)
@@ -161,24 +99,10 @@ void main()
     lensPoint.y = 1.0 - lensPoint.y;
     bool onLens = all(greaterThanEqual(lensPoint, vec2(0.0))) && all(lessThanEqual(lensPoint, vec2(1.0)));
     vec4 bead = lensRainStrength > 0.0 && onLens ? beadSurface(lensPoint) : vec4(0.0);
-    vec4 frost = vec4(0.0);
-    vec2 lensPixels = max(aperture.zw * frameSize * (1.0 - 2.0 * rainInset), vec2(1.0));
-    for (int i = 0; i < frostCount; i++)
-    {
-        vec4 patch = proceduralFrost(lensPoint, frostCrystals[i], frostDetails[i], i, 1.0 / lensPixels);
-        if (patch.z > frost.z) frost.xy = patch.xy;
-        frost.zw = max(frost.zw, patch.zw);
-    }
-    if (!onLens) frost = vec4(0.0);
     vec2 physicalSize = aperture.zw * frameSize;
     vec2 beadNormal = transmissionNormal(bead.z, physicalSize);
-    vec2 iceNormal = transmissionNormal(frost.z, physicalSize);
     vec2 beadShift = beadNormal * lensRainStrength * 0.012;
-    vec2 iceShift = iceNormal * 0.012;
-    // Only bound exceptionally steep subpixel ice slopes. Water retains its
-    // original lens-like displacement, including radius-dependent magnification.
-    iceShift = clamp(iceShift, -vec2(8.0) / frameSize, vec2(8.0) / frameSize);
-    vec2 refractedUv = clamp(texCoord + beadShift + iceShift,
+    vec2 refractedUv = clamp(texCoord + beadShift,
         aperture.xy + 0.5 / frameSize, farEdge - 0.5 / frameSize);
     vec3 color = texture(sceneTexture, refractedUv).rgb;
     float depth = texture(depthTexture, texCoord).r;
@@ -204,9 +128,6 @@ void main()
     color = mix(color, gradeAir(vec3(1.0, 0.97, 0.90)), clamp(halo, 0.0, 0.20));
     float illumination = clamp(lensLight, 0.0, 1.0);
     float luminance = dot(color, vec3(0.299, 0.587, 0.114));
-    vec2 sunDelta = (sunScreen - texCoord) * frameSize;
-    vec2 incidentLight = glareStrength > 0.001 && length(sunDelta) > 1.0
-        ? normalize(sunDelta) : normalize(vec2(-0.6, 0.8));
     if (bead.z > 0.0)
     {
         // The original water transmission shading is kept verbatim.
@@ -217,19 +138,6 @@ void main()
         // with the broad, dark circles introduced by the visibility correction.
         float brightRim = bead.w * smoothstep(0.60, 0.95, luminance) * illumination;
         color *= 1.0 - brightRim * 0.28 * lensRainStrength;
-    }
-    if (frost.z > 0.0)
-    {
-        // Ice uses the same curved thickness -> normal -> transmitted scene
-        // chain as water. Its geometry is still an asymmetric feathered crystal.
-        float edgeShade = clamp(length(iceNormal) * 0.18, 0.0, 0.055);
-        float highlight = clamp((-iceNormal.x + iceNormal.y) * 0.14, 0.0, 0.045) * illumination;
-        color *= 1.0 + highlight - edgeShade - frost.z * 0.055;
-        float brightEdge = smoothstep(0.60, 0.95, luminance) * illumination;
-        float crystalBoundary = clamp(length(iceNormal) * 0.6, 0.0, 0.28) * frost.z;
-        color *= 1.0 - crystalBoundary * brightEdge;
-        float facetReflection = pow(max(0.0, dot(frost.xy, incidentLight)), 2.0) * 0.10 * illumination;
-        color = mix(color, gradeAir(vec3(0.92, 0.98, 1.0)), facetReflection);
     }
     outColor = vec4(mix(scene.rgb, color, fade), scene.a);
 }

@@ -25,7 +25,6 @@ namespace spyglass.src.Client
         private float targetLensRain;
         private readonly LensRainModel rain = new();
         private string rainLens;
-        private bool frostConditions;
 
         public double RenderOrder => 0.5;
         public int RenderRange => 999;
@@ -80,7 +79,6 @@ namespace spyglass.src.Client
             lastWeatherSample = now;
             targetExtinction = 0;
             targetLensRain = 0;
-            frostConditions = false;
             weather ??= capi.ModLoader.GetModSystem<WeatherSystemClient>();
             if (weather == null || !weather.haveLevelFinalize || !weather.playerChunkLoaded) return;
             var data = weather.BlendedWeatherData;
@@ -94,7 +92,6 @@ namespace spyglass.src.Client
                 _ => OpticsPrecipitation.Rain
             };
             kind = AtmosphericOpticsModel.ResolvePrecipitation(kind, climate.Temperature, data.snowThresholdTemp);
-            frostConditions = kind == OpticsPrecipitation.Snow || climate.Temperature < -5f;
             // This is the same physical rainfall used by the game's weather particles,
             // before particle-quality settings or shelter suppress particle spawning.
             float rainfall = Math.Max(0, climate.Rainfall - (float)Math.Max(0,
@@ -151,7 +148,7 @@ namespace spyglass.src.Client
             float fade = AtmosphericOpticsModel.Unit(ClientManipulation.getPercentZoomed());
             if (capi.World?.Player?.Entity == null) return;
             var render = capi.Render;
-            if (render.ShaderUniforms.CameraUnderwater > 0) { rain.Clear(); frostConditions = false; return; }
+            if (render.ShaderUniforms.CameraUnderwater > 0) { rain.Clear(); return; }
             SampleWeather();
             string lens = ClientManipulation.GetHeldSpyglassMaterial() + ":" + ClientManipulation.GetHeldLensGlass();
             // A missing held spyglass resolves to fallback material names. Do
@@ -159,9 +156,8 @@ namespace spyglass.src.Client
             if (rain.IsInUse && lens != rainLens) { rain.Clear(); rainLens = lens; }
             float rainStrength = SpyglassMod.config.enableLensRain
                 ? AtmosphericOpticsModel.Strength(SpyglassMod.config.lensRainStrength) : 0;
-            frostConditions &= SpyglassMod.config.enableLensRain;
-            if (rainStrength <= 0 && !frostConditions) rain.Clear();
-            else if (rain.IsInUse) rain.Update(deltaTime, rainStrength > 0 ? targetLensRain : 0, frostConditions);
+            if (rainStrength <= 0) rain.Clear();
+            else if (rain.IsInUse) rain.Update(deltaTime, targetLensRain);
             if (fade <= 0.001f) return;
             extinction = AtmosphericOpticsModel.Approach(extinction, targetExtinction, deltaTime);
             float coefficient = SpyglassMod.config.enableAtmosphericOptics
@@ -237,13 +233,8 @@ namespace spyglass.src.Client
                 shader.Uniform("lensRainStrength", rainStrength);
                 shader.Uniform("lensLight", ClientManipulation.GetLensLightLevel());
                 shader.Uniform("rainDropCount", rain.Drops.Count);
-                shader.Uniform("frostCount", rain.Crystals.Count);
                 shader.Uniforms4("rainDrops", LensRainModel.MaxDrops, rain.DropUniforms);
                 shader.Uniforms4("rainDropShapes", LensRainModel.MaxDrops, rain.DropShapeUniforms);
-                shader.Uniforms4("frostCrystals", LensRainModel.MaxFrost, rain.FrostUniforms);
-                shader.Uniforms4("frostDetails", LensRainModel.MaxFrost, rain.FrostDetailUniforms);
-                shader.Uniforms4("frostFacets", LensRainModel.MaxFrostFacets, rain.FrostFacetUniforms);
-                shader.Uniforms4("frostFacetShapes", LensRainModel.MaxFrostFacets, rain.FrostFacetShapeUniforms);
                 float rimInset = config.GetVinetteStyle() == VignetteStyle.none ? 0 : (float)(SpyglassOverlay.MetalWidth * 1.1 / aperture.Width);
                 shader.Uniform("rainInset", Math.Min(.45f, rimInset), Math.Min(.45f, rimInset));
                 shader.Uniform("extinction", coefficient);
