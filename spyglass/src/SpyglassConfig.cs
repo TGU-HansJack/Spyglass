@@ -16,7 +16,8 @@ namespace spyglass.src
     {
         public String vignetteStyle = "square";
 
-        public int edgeSize = 20; // thickness of the metal rim in screen pixels
+        public float lensSize = 0.5f; // side length relative to the original square aperture; 0.5 gives one-quarter area
+        public int edgeSize = 10; // square aperture margin along the shorter screen dimension, in pixels
         public float edgeOpacity = 0.5f; // opacity of the metal rim; the outside eye-cup is always opaque
 
         public float glassBrightness = 1.0f; // less then 1.0, will dim the view when using spyglass

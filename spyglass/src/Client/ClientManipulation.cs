@@ -154,14 +154,6 @@ namespace spyglass.src
             }
         }
 
-        internal static float GetOpticalFeedback()
-        {
-            float amount = Math.Max(0f, Math.Min(1f, getPercentZoomed()));
-            // A barely perceptible breathing/glass response keeps the lens alive
-            // without adding camera shake or motion sickness.
-            return 1f + (float)Math.Sin(SpyglassMod.gameRuntime * 2.2) * 0.012f * amount;
-        }
-
         public static bool AttemptingToZoom()
         {
             // validate if we can in fact, zoom.

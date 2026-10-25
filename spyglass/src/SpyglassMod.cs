@@ -92,6 +92,7 @@ namespace spyglass.src
                     loadedConfig.vignetteStyle = serverConfig.vignetteStyle.ToString();
                     loadedConfig.edgeOpacity = serverConfig.edgeOpacity;
                     loadedConfig.edgeSize = serverConfig.edgeSize;
+                    loadedConfig.lensSize = serverConfig.lensSize;
                     zoomWheel?.RequestRecompose();
                 });
             zoomWheel = new ZoomWheel(api);
@@ -112,6 +113,7 @@ namespace spyglass.src
                     {
                         edgeOpacity = loadedConfig.edgeOpacity,
                         edgeSize = loadedConfig.edgeSize,
+                        lensSize = loadedConfig.lensSize,
                         vignetteStyle = loadedConfig.GetVinetteStyle()
                     }, byPlayer);
                 }

@@ -14,7 +14,6 @@ namespace spyglass.src.Client
     {
 		private double lastAppearanceCheck;
 		private float lastLensLight = 1f;
-		private float lastOpticalFeedback = 1f;
 		private string lastLensMaterial;
 
         public ZoomWheel(ICoreClientAPI capi) : base(capi)
@@ -32,12 +31,10 @@ namespace spyglass.src.Client
 			{
 				lastAppearanceCheck = SpyglassMod.gameRuntime;
 				float currentLight = ClientManipulation.GetLensLightLevel();
-				float currentFeedback = ClientManipulation.GetOpticalFeedback();
 				string currentMaterial = ClientManipulation.GetHeldSpyglassMaterial();
-				if (Math.Abs(currentLight - lastLensLight) > 0.025f || Math.Abs(currentFeedback - lastOpticalFeedback) > 0.002f || currentMaterial != lastLensMaterial)
+				if (Math.Abs(currentLight - lastLensLight) > 0.025f || currentMaterial != lastLensMaterial)
 				{
 					lastLensLight = currentLight;
-					lastOpticalFeedback = currentFeedback;
 					lastLensMaterial = currentMaterial;
 					RequestRecompose();
 				}
@@ -62,7 +59,7 @@ namespace spyglass.src.Client
 			if (style == VignetteStyle.none)
 				return composer;
 
-            return composer.AddInteractiveElement(new SpyglassOverlay(capi, ElementBounds.Fill, SpyglassMod.config.edgeSize, SpyglassMod.config.glassColor, SpyglassMod.config.glassBrightness, SpyglassMod.config.edgeOpacity, ClientManipulation.GetOpticalFeedback(), style, ClientManipulation.GetHeldSpyglassMaterial(), ClientManipulation.GetLensLightLevel()));
+            return composer.AddInteractiveElement(new SpyglassOverlay(capi, ElementBounds.Fill, SpyglassMod.config.edgeSize, SpyglassMod.config.lensSize, SpyglassMod.config.glassColor, SpyglassMod.config.glassBrightness, SpyglassMod.config.edgeOpacity, style, ClientManipulation.GetHeldSpyglassMaterial(), ClientManipulation.GetLensLightLevel()));
 		}
 
 		public override void OnMouseWheel(MouseWheelEventArgs args)
