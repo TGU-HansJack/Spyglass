@@ -42,9 +42,10 @@ namespace spyglass.src.Client
             {
                 case VignetteStyle.square:
                     {
-                        double size = Math.Max(0, Math.Min(Bounds.OuterHeight, Bounds.OuterWidth) - edgeSize * 2) * lensSize;
-                        double x = Bounds.drawX + (Bounds.OuterWidth - size) / 2.0;
-                        double y = Bounds.drawY + (Bounds.OuterHeight - size) / 2.0;
+                        var aperture = LensAperture.Square(Bounds.drawX, Bounds.drawY, Bounds.OuterWidth, Bounds.OuterHeight, edgeSize, lensSize);
+                        double size = aperture.Width;
+                        double x = aperture.X;
+                        double y = aperture.Y;
 
                         // Even-odd fill cuts the square aperture out of the dark mask.
                         ctx.SetSourceRGBA(0.0, 0.0, 0.0, 1.0);

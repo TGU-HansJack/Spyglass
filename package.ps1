@@ -33,11 +33,16 @@ try {
         Get-ChildItem -LiteralPath $deployDirectory.Path -Filter $pattern -File -ErrorAction SilentlyContinue |
             Remove-Item -Force
     }
-    Copy-Item -LiteralPath $packagePath -Destination (Join-Path $deployDirectory.Path ([System.IO.Path]::GetFileName($packagePath))) -Force
+    $deployedPackagePath = Join-Path $deployDirectory.Path ([System.IO.Path]::GetFileName($packagePath))
+    Copy-Item -LiteralPath $packagePath -Destination $deployedPackagePath -Force
     $hash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $deployedHash = (Get-FileHash -LiteralPath $deployedPackagePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($hash -ne $deployedHash) { throw 'Deployed package SHA256 does not match the release package.' }
     Set-Content -LiteralPath ($packagePath + '.sha256') -Value ($hash + '  ' + [System.IO.Path]::GetFileName($packagePath)) -NoNewline
     Get-Item -LiteralPath $packagePath
     Get-FileHash -LiteralPath $packagePath -Algorithm SHA256
+    Write-Output "Deployed: $deployedPackagePath"
+    Write-Output "Deployment SHA256 verified: $deployedHash"
 } finally {
     $resolvedStage = [System.IO.Path]::GetFullPath($stageDirectory)
     if ([System.IO.Path]::GetDirectoryName($resolvedStage) -ne $stageParent.TrimEnd('\', '/') `

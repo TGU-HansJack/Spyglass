@@ -195,6 +195,68 @@ static class Regression
             Check(Get(logic, "capi") == null && Get(logic, "zoomAnimation") == null, "dispose clears client references");
             Check((float)Call(logic, "getPercentZoomed")! == 0, "late zoom query is safe after dispose");
             Check(!Harmony.GetAllPatchedMethods().Any(m => Harmony.GetPatchInfo(m)?.Owners.Contains("spyglassfork") == true), "dispose removes fork patches");
+            var legacyConfig = Newtonsoft.Json.JsonConvert.DeserializeObject("{\"vignetteStyle\":\"square\",\"lensSize\":0.5}", configType)!;
+            Check((bool)AccessTools.Field(configType, "enableAtmosphericOptics").GetValue(legacyConfig)!
+                && (float)AccessTools.Field(configType, "weatherOpticsStrength").GetValue(legacyConfig)! == 1
+                && (float)AccessTools.Field(configType, "sunGlareStrength").GetValue(legacyConfig)! == 1,
+                "legacy config retains atmospheric defaults");
+            Config("enableAtmosphericOptics", false);
+            Config("weatherOpticsStrength", .4f);
+            Config("sunGlareStrength", 1.6f);
+            var packetType = T("Network.ServerConfigSyncPacket");
+            var packet = Activator.CreateInstance(packetType)!;
+            AccessTools.Field(packetType, "vignetteStyle").SetValue(packet, Enum.Parse(T("VignetteStyle"), "none"));
+            AccessTools.Field(packetType, "lensSize").SetValue(packet, .8f);
+            var syncHandler = modType.GetMethods(BindingFlags.Instance | BindingFlags.NonPublic).Single(m =>
+                m.Name.StartsWith("<StartClientSide>") && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType == packetType);
+            syncHandler.Invoke(Activator.CreateInstance(modType, true), new[] { packet });
+            Check((string)AccessTools.Field(configType, "vignetteStyle").GetValue(config)! == "none"
+                && (float)AccessTools.Field(configType, "lensSize").GetValue(config)! == .8f, "real server handler still applies aperture settings");
+            Check(!(bool)AccessTools.Field(configType, "enableAtmosphericOptics").GetValue(config)!
+                && (float)AccessTools.Field(configType, "weatherOpticsStrength").GetValue(config)! == .4f
+                && (float)AccessTools.Field(configType, "sunGlareStrength").GetValue(config)! == 1.6f,
+                "server aperture synchronization preserves client optics preferences");
+            Check(packetType.GetFields().All(f => f.Name != "enableAtmosphericOptics" && f.Name != "weatherOpticsStrength" && f.Name != "sunGlareStrength"),
+                "atmospheric preferences excluded from network packet");
+
+            var rendererType = T("Client.AtmosphericOpticsRenderer");
+            var registered = new List<EnumRenderStage>();
+            var unregistered = new List<EnumRenderStage>();
+            Delegate? reload = null;
+            int reloadAdds = 0, reloadRemoves = 0, compiles = 0, disposes = 0, warnings = 0;
+            var events = Proxy.Make<IClientEventAPI>((m, values) => {
+                if (m.Name == "RegisterRenderer") registered.Add((EnumRenderStage)values![1]!);
+                if (m.Name == "UnregisterRenderer") unregistered.Add((EnumRenderStage)values![1]!);
+                if (m.Name == "add_ReloadShader") { reload = (Delegate)values![0]!; reloadAdds++; }
+                if (m.Name == "remove_ReloadShader") { if (Equals(reload, values![0])) reloadRemoves++; }
+                return Proxy.Default(m.ReturnType);
+            });
+            var failedShader = Proxy.Make<IShaderProgram>((m, _) => {
+                if (m.Name == "Compile") { compiles++; return false; }
+                if (m.Name == "Dispose") disposes++;
+                return Proxy.Default(m.ReturnType);
+            });
+            var shaders = Proxy.Make<IShaderAPI>((m, _) => m.Name == "NewShaderProgram" ? failedShader : Proxy.Default(m.ReturnType));
+            logger = Proxy.Make<ILogger>((m, _) => { if (m.Name == "Warning") warnings++; return Proxy.Default(m.ReturnType); });
+            api = Proxy.Make<ICoreClientAPI>((m, _) => m.Name switch {
+                "get_Event" => events, "get_Shader" => shaders, "get_Logger" => logger, _ => Proxy.Default(m.ReturnType)
+            });
+            var renderer = (IRenderer)Activator.CreateInstance(rendererType, BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] {api}, null)!;
+            Check(registered.SequenceEqual(new[] {EnumRenderStage.AfterOIT, EnumRenderStage.AfterBlit}) && reloadAdds == 1,
+                "atmosphere registers depth validation, final rendering and shader reload");
+            bool Resources() => (bool)AccessTools.Method(rendererType, "EnsureResources").Invoke(renderer, null)!;
+            Check(!Resources() && !Resources() && compiles == 1 && warnings == 1, "shader failure logs once and suspends retries");
+            float ratioBefore = (float)Call(modType, "getZoomRatio")!;
+            renderer.OnRenderFrame(.016f, EnumRenderStage.AfterOIT);
+            renderer.OnRenderFrame(.016f, EnumRenderStage.AfterBlit);
+            Check((float)Call(modType, "getZoomRatio")! == ratioBefore, "shader failure preserves existing zoom state");
+            Check((bool)reload!.DynamicInvoke()! && disposes == 1, "shader reload releases failed shader safely");
+            Check(!Resources() && compiles == 2 && warnings == 2, "shader reload permits a fresh compilation attempt");
+            renderer.Dispose(); renderer.Dispose();
+            Check(unregistered.SequenceEqual(new[] {EnumRenderStage.AfterBlit, EnumRenderStage.AfterOIT})
+                && reloadRemoves == 1 && disposes == 2, "atmosphere dispose unregisters all callbacks exactly once");
+            renderer.OnRenderFrame(.016f, EnumRenderStage.AfterBlit);
+            Check(compiles == 2 && warnings == 2, "late render after dispose is safe");
             Console.WriteLine("SUCCESS " + assertions + " assertions");
             return 0;
         } finally { harmony.UnpatchAll(harmony.Id); }

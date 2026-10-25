@@ -23,6 +23,11 @@ namespace spyglass.src
         public float glassBrightness = 1.0f; // less then 1.0, will dim the view when using spyglass
         public float glassColor = 0.94f; // the brightness of the glass material, by default this is nearly white like quartz.
 
+        // Client preferences, intentionally excluded from the server vignette packet.
+        public bool enableAtmosphericOptics = true;
+        public float weatherOpticsStrength = 1.0f; // 0..2; 0 disables extra precipitation attenuation
+        public float sunGlareStrength = 1.0f; // 0..2; 0 disables the local solar halo
+
         public float transitionTimeBasis = 525f; // ms to do a complete zoom ( rougly ), higher slows animation, lower quickens it.
         public float minimumZoomTime = 250f; // minimum time using spyglass.
         public float defaultZoomPosition = 0.85f;

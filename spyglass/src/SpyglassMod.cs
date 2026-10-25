@@ -28,6 +28,7 @@ namespace spyglass.src
         private ClientManipulation clientLogic;
         private ICoreClientAPI clientApi;
         private ZoomWheel zoomWheel;
+        private AtmosphericOpticsRenderer atmosphericOptics;
         private long? tickListenerId;
         internal static double gameRuntime = 0; // used by Util/ClientTime
 
@@ -97,6 +98,7 @@ namespace spyglass.src
                 });
             zoomWheel = new ZoomWheel(api);
             api.Gui.RegisterDialog(zoomWheel);
+            atmosphericOptics = new AtmosphericOpticsRenderer(api);
             tickListenerId = api.Event.RegisterGameTickListener(OnGameTick, 4);
             setRatioToDefault();
         }
@@ -127,6 +129,8 @@ namespace spyglass.src
 
         public override void Dispose()
         {
+            atmosphericOptics?.Dispose();
+            atmosphericOptics = null;
             if (tickListenerId.HasValue)
             {
                 clientApi.Event.UnregisterGameTickListener(tickListenerId.Value);
