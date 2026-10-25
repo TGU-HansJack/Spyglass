@@ -88,9 +88,11 @@ float initialY = merging.Drops[0].Y;
 for (int i = 0; i < 180; i++) merging.Update(1f / 60, 0);
 Check(merging.Drops.Count == 1 && merging.Drops[0].Y > initialY + .1f, "large beads slide down under gravity");
 Check(merging.Trails.Count > 0, "sliding beads leave persistent water trails");
-Check(merging.Trails.Any(t => t.Width > 0 && t.Width < .02f), "water trails vary in pixel width");
-Check(merging.Trails.Select(t => t.X).Distinct().Count() > 1 || merging.Drops.Any(d => Math.Abs(d.Drift) > .001f),
+Check(merging.Trails.Any(t => t.WidthTop > 0 && t.WidthTop < .02f && t.WidthBottom != t.WidthTop), "water trails vary in pixel width");
+Check(merging.Trails.Any(t => Math.Abs(t.XBottom - t.XTop) > .0001f) || merging.Drops.Any(d => Math.Abs(d.Drift) > .001f),
     "water paths are not locked to a single vertical route");
+Check(merging.Drops.Any(d => d.Pause > 0) || merging.Trails.Any(t => t.Life < 2.5f),
+    "water motion includes pauses and irregular trail lifetimes");
 for (int i = 0; i < 600; i++) merging.Update(1f / 60, 0);
 Check(merging.Drained > 0, "runoff reaches the bottom and drains away");
 var wet = new LensRainModel();
@@ -228,7 +230,7 @@ void UploadWater(LensRainModel model)
     GL.Uniform1(U("rainDropCount"), model.Drops.Count);
     GL.Uniform1(U("rainTrailCount"), model.Trails.Count);
     GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, model.DropUniforms);
-    GL.Uniform4(U("rainTrails"), LensRainModel.MaxTrails, model.TrailUniforms);
+    GL.Uniform4(U("rainTrails"), LensRainModel.MaxTrails * 2, model.TrailUniforms);
     F("rainPool", model.Pool);
 }
 F("lensRainStrength", 1); F("lensLight", 1);
@@ -250,7 +252,8 @@ waterModel.Clear(); waterModel.Update(1f / 60, 0); UploadWater(waterModel);
 Check(disabledRain.SequenceEqual(Render(coefficient: 0)), "GPU dry lens has no residual effect");
 // Isolate a vertical residual stream and the bottom meniscus.
 GL.Uniform1(U("rainTrailCount"), 1);
-GL.Uniform4(U("rainTrails"), .5f, .5f, .008f, 1f);
+GL.Uniform4(U("rainTrails"), .5f, .5f, .1f, .9f);
+GL.Uniform4(U("rainTrails[1]"), .012f, .008f, 1f, .62f);
 Check(Pixel(Render(coefficient: 0)) < .2f, "GPU residual streams shade a vertical water path");
 GL.Uniform1(U("rainTrailCount"), 0); F("rainPool", .04f);
 var pooled = Render(coefficient: 0);

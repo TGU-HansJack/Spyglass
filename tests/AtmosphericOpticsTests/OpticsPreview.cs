@@ -86,7 +86,7 @@ internal static class OpticsPreview
             GL.Uniform1(U("rainDropCount"), water.Drops.Count);
             GL.Uniform1(U("rainTrailCount"), water.Trails.Count);
             GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, water.DropUniforms);
-            GL.Uniform4(U("rainTrails"), LensRainModel.MaxTrails, water.TrailUniforms);
+            GL.Uniform4(U("rainTrails"), LensRainModel.MaxTrails * 2, water.TrailUniforms);
             F("rainPool", water.Pool);
             GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
             var pixels = new byte[side * side * 3];

@@ -1,4 +1,4 @@
-# Spyglass Fork 0.6.6 兼容性验证
+# Spyglass Fork 0.6.7 兼容性验证
 
 验证日期：2026-10-25。模组 ID：`spyglassfork`。作者：Fuami、HansJack。
 基于 Spyglass 0.6.1，原项目：https://github.com/fuami/Spyglass 。
@@ -7,7 +7,7 @@
 ## 0.6.6 更新与复验
 
 - 水珠轨迹由单一固定水痕改为独立漂移，水痕宽度、长度、间距、寿命随机化，并支持少量断裂和分叉；GLSL 采用低对比度分级像素边缘，降低平滑高光和规则直线带来的人工感。
-- GPU 水珠/水痕/积水检查扩展到 103 项；新增轨迹宽度和非固定路线的 CPU 检查。预览重新生成到 `artifacts/optics-preview` 与 `artifacts/lens-preview`。
+- GPU 水珠/水痕/积水检查扩展到 104 项；新增轨迹宽度、非固定路线、停顿和不规则寿命的 CPU 检查。预览重新生成到 `artifacts/optics-preview` 与 `artifacts/lens-preview`。
 
 ## 0.6.5 历史更新与复验
 

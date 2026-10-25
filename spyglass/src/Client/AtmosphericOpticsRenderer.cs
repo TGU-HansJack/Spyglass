@@ -228,7 +228,7 @@ namespace spyglass.src.Client
                 shader.Uniform("rainDropCount", rain.Drops.Count);
                 shader.Uniform("rainTrailCount", rain.Trails.Count);
                 shader.Uniforms4("rainDrops", LensRainModel.MaxDrops, rain.DropUniforms);
-                shader.Uniforms4("rainTrails", LensRainModel.MaxTrails, rain.TrailUniforms);
+                shader.Uniforms4("rainTrails", LensRainModel.MaxTrails * 2, rain.TrailUniforms);
                 shader.Uniform("rainPool", rain.Pool);
                 float rimInset = config.GetVinetteStyle() == VignetteStyle.none ? 0 : (float)(SpyglassOverlay.MetalWidth * 1.1 / aperture.Width);
                 shader.Uniform("rainInset", Math.Min(.45f, rimInset), Math.Min(.45f, rimInset));

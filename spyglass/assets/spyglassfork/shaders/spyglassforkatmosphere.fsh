@@ -18,7 +18,7 @@ uniform float lensLight;
 uniform int rainDropCount;
 uniform int rainTrailCount;
 uniform vec4 rainDrops[32];
-uniform vec4 rainTrails[24];
+uniform vec4 rainTrails[96];
 uniform float rainPool;
 uniform vec2 rainInset;
 in vec2 texCoord;
@@ -41,10 +41,17 @@ float waterHeight(vec2 p)
     }
     for (int i = 0; i < rainTrailCount; i++)
     {
-        vec4 trail = rainTrails[i];
-        float across = max(0.0, 1.0 - abs(p.x - trail.x) / max(trail.z, 0.0008));
-        float along = max(0.0, 1.0 - abs(p.y - trail.y) / max(trail.z * 2.8, 0.0012));
-        float fleck = across * along * trail.w;
+        vec4 path = rainTrails[i * 2];
+        vec4 shape = rainTrails[i * 2 + 1];
+        float span = max(path.w - path.z, 0.001);
+        float t = clamp((p.y - path.z) / span, 0.0, 1.0);
+        float routeX = mix(path.x, path.y, t);
+        float width = mix(shape.x, shape.y, t);
+        float across = max(0.0, 1.0 - abs(p.x - routeX) / max(width, 0.00055));
+        float along = smoothstep(path.z - .001, path.z + span * .22, p.y)
+            * (1.0 - smoothstep(path.w - span * .22, path.w + .001, p.y));
+        float gap = step(.18, fract(shape.w + t * 3.7));
+        float fleck = max(0.0, across * max(along, 0.0)) * shape.z * gap;
         height = max(height, floor(fleck * 4.0 + 0.5) / 4.0);
     }
     if (rainPool > 0.0001)
