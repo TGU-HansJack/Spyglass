@@ -1,7 +1,6 @@
 #version 330 core
 uniform sampler2D sceneTexture;
 uniform sampler2D depthTexture;
-uniform sampler2D frostTexture;
 uniform mat4 inverseProjection;
 uniform vec4 aperture;
 uniform vec2 frameSize;
@@ -22,6 +21,8 @@ uniform vec4 rainDropShapes[80];
 uniform int frostCount;
 uniform vec4 frostCrystals[2];
 uniform vec4 frostDetails[2];
+uniform vec4 frostFacets[144];
+uniform vec4 frostFacetShapes[144];
 uniform vec2 rainInset;
 uniform float flickProgress;
 in vec2 texCoord;
@@ -51,21 +52,59 @@ vec4 beadSurface(vec2 p)
     return surface;
 }
 
-// The reference's blue background is absent from this alpha texture. Only
-// feathered ice detail is sampled; the world remains visible between crystals.
-vec2 frostTextureCoverage(vec2 p, vec4 crystal, vec4 detail)
+// Each tapered crystal is actual analytic prism geometry with a triangular
+// cross-section. No image sampling, derivative-of-texture normal or white decal.
+// xy: screen-oriented facet normal, z: transparent coverage, w: ridge highlight.
+vec4 proceduralFrost(vec2 p, vec4 crystal, vec4 detail, int patchIndex, vec2 pixelSize)
 {
-    vec2 delta = p - crystal.xy;
     vec2 axis = vec2(cos(detail.x), sin(detail.x));
-    vec2 q = vec2(dot(delta, axis), dot(delta, vec2(-axis.y, axis.x))) / crystal.z;
-    vec2 uv = vec2(q.x, q.y + 0.5);
-    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec2(0.0);
-    if (detail.z > 0.5) uv.y = 1.0 - uv.y;
-    float ice = texture(frostTexture, uv).a;
-    float reveal = 1.0 - smoothstep(detail.y - 0.025, detail.y + 0.025, uv.x);
-    reveal *= smoothstep(-0.005, 0.015, detail.y);
-    float ridge = 1.0 - exp(-ice * 3.0);
-    return vec2(ridge, ice) * reveal * crystal.w;
+    vec2 perpendicular = vec2(-axis.y, axis.x);
+    vec2 delta = p - crystal.xy;
+    vec2 q = vec2(dot(delta, axis), dot(delta, perpendicular)) / crystal.z;
+    if (q.x < -0.04 || q.x > 1.08 || abs(q.y) > 0.62 || detail.y <= 0.0) return vec4(0.0);
+    float aa = max(pixelSize.x, pixelSize.y) / crystal.z * 0.55;
+    vec4 result = vec4(0.0);
+    float strongest = 0.0;
+    for (int facetIndex = 0; facetIndex < 72; facetIndex++)
+    {
+        if (facetIndex >= int(detail.w)) break;
+        int index = patchIndex * 72 + facetIndex;
+        vec4 facet = frostFacets[index];
+        vec2 shape = frostFacetShapes[index].xy;
+        vec2 a = facet.xy, b = facet.zw;
+        float grown = clamp((detail.y - a.x) / max(b.x - a.x, 0.01), 0.0, 1.0);
+        if (grown <= 0.0) continue;
+        b = mix(a, b, grown);
+        vec2 direction = b - a;
+        float facetLength = length(direction);
+        if (facetLength < 0.0001) continue;
+        direction /= facetLength;
+        vec2 side = vec2(-direction.y, direction.x);
+        float distanceAlong = dot(q - a, direction);
+        float t = clamp(distanceAlong / facetLength, 0.0, 1.0);
+        float width = shape.x * (1.0 - t * 0.90);
+        float lateral = dot(q - a, side);
+        float extent = smoothstep(-aa, aa, distanceAlong)
+            * (1.0 - smoothstep(facetLength - aa, facetLength + aa, distanceAlong));
+        float coverage = (1.0 - smoothstep(max(0.0, width - aa), width + aa, abs(lateral))) * extent;
+        // Integrate subpixel twigs: fine ice must fade to partial coverage,
+        // not vanish or alias as the display size changes.
+        coverage *= clamp(width / max(aa, 0.0001), 0.0, 1.0) * crystal.w;
+        float ridge = exp(-abs(lateral) / max(width * 0.28, aa)) * coverage;
+        float score = coverage * shape.y;
+        if (score > strongest)
+        {
+            float slope = lateral / sqrt(lateral * lateral + aa * aa);
+            vec2 localNormal = side * slope * shape.y * 0.85 - direction * 0.10;
+            vec2 lensNormal = axis * localNormal.x + perpendicular * localNormal.y;
+            lensNormal.y = -lensNormal.y;
+            result.xy = lensNormal * coverage;
+            strongest = score;
+        }
+        result.z = max(result.z, score);
+        result.w = max(result.w, ridge * shape.y);
+    }
+    return result;
 }
 
 float hueChannel(float lo, float hi, float h)
@@ -119,14 +158,17 @@ void main()
     lensPoint.y = 1.0 - lensPoint.y;
     bool onLens = all(greaterThanEqual(lensPoint, vec2(0.0))) && all(lessThanEqual(lensPoint, vec2(1.0)));
     vec4 bead = lensRainStrength > 0.0 && onLens ? beadSurface(lensPoint) : vec4(0.0);
-    vec2 frost = vec2(0.0);
+    vec4 frost = vec4(0.0);
+    vec2 lensPixels = max(aperture.zw * frameSize * (1.0 - 2.0 * rainInset), vec2(1.0));
     for (int i = 0; i < frostCount; i++)
-        frost = max(frost, frostTextureCoverage(lensPoint, frostCrystals[i], frostDetails[i]));
-    if (!onLens) frost = vec2(0.0);
-    // Thin ice and droplets both transmit a displaced scene. Physical pixel
-    // limits prevent excessive distortion on large monitors and zoom settings.
-    vec2 iceNormal = vec2(dFdx(frost.y), dFdy(frost.y));
-    vec2 iceShift = clamp(iceNormal * 16.0, vec2(-2.5), vec2(2.5)) * step(0.001, frost.y);
+    {
+        vec4 patch = proceduralFrost(lensPoint, frostCrystals[i], frostDetails[i], i, 1.0 / lensPixels);
+        if (patch.z > frost.z) frost.xy = patch.xy;
+        frost.zw = max(frost.zw, patch.zw);
+    }
+    if (!onLens) frost = vec4(0.0);
+    vec2 iceNormal = frost.xy;
+    vec2 iceShift = clamp(iceNormal * 3.8, vec2(-2.5), vec2(2.5));
     vec2 beadShift = clamp(bead.xy * 2.0 * lensRainStrength, vec2(-4.0), vec2(4.0));
     vec2 refractedUv = clamp(texCoord + (beadShift + iceShift) / frameSize,
         aperture.xy + 0.5 / frameSize, farEdge - 0.5 / frameSize);
@@ -134,7 +176,7 @@ void main()
     vec2 roughness = vec2(1.1) / frameSize;
     vec3 roughScene = (texture(sceneTexture, clamp(refractedUv + roughness, aperture.xy, farEdge)).rgb
         + texture(sceneTexture, clamp(refractedUv - roughness, aperture.xy, farEdge)).rgb) * 0.5;
-    color = mix(color, roughScene, frost.y * 0.22);
+    color = mix(color, roughScene, frost.z * 0.16);
     float depth = texture(depthTexture, texCoord).r;
     vec4 view = inverseProjection * vec4(texCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     // A cleared depth represents the sky, which keeps the engine's existing fog.
@@ -178,11 +220,11 @@ void main()
     }
     // Ice ridges need both reflected light and a darker refractive boundary:
     // a white-only reflection cannot stand out against sunlit white clouds.
-    float iceEdge = clamp(length(iceNormal) * 3.5, 0.0, 1.0);
-    float iceContour = frost.x * (0.10 + skyBrightness * 0.23) + iceEdge * 0.15;
+    float iceEdge = clamp(length(iceNormal), 0.0, 1.0);
+    float iceContour = frost.z * (0.08 + skyBrightness * 0.23) + iceEdge * 0.18;
     color *= 1.0 - clamp(iceContour * illumination, 0.0, 0.46);
-    float iceReflection = (frost.x * 0.20 + clamp(dot(iceNormal, incidentLight), 0.0, 0.35) * 0.55)
-        * illumination;
+    float facetFacing = max(0.0, dot(iceNormal, incidentLight));
+    float iceReflection = (frost.w * 0.16 + pow(facetFacing, 2.0) * 0.42) * illumination;
     color = mix(color, gradeAir(vec3(0.92, 0.98, 1.0)), clamp(iceReflection, 0.0, 0.60));
     if (flickProgress < 1.0)
     {

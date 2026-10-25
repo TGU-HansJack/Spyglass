@@ -108,6 +108,12 @@ Check(frost.Crystals.Count is > 0 and <= LensRainModel.MaxFrost, "cold exposure 
 Check(frost.Crystals.All(c => c.X is .012f or .988f || c.Y is .012f or .988f), "frost is anchored at a lens edge");
 Check(frost.Crystals.All(c => c.Radius >= .34f && c.Radius <= .41f), "grown frost extends at least one sixth of the full lens");
 Check(frost.Crystals.All(c => c.Growth > .9f), "frost grows from the edge over time");
+Check(frost.Crystals.All(c => c.Facets.Count == LensRainModel.FacetsPerCrystal),
+    "procedural frost forms a bounded hierarchy of stem, branch and needle prisms");
+Check(frost.Crystals.SelectMany(c => c.Facets).All(f => f.BX > f.AX && f.Width > 0 && f.Thickness > 0),
+    "every ice prism has forward growth, a finite width and optical thickness");
+Check(frost.FrostFacetUniforms.Any(v => v != 0) && frost.FrostFacetShapeUniforms.Any(v => v != 0),
+    "frost optical geometry is uploaded independently of all bitmap assets");
 for (int i = 0; i < 900; i++) frost.Update(1f / 60, 0, false);
 Check(frost.Crystals.Count == 0, "warm exposure melts frost");
 var warm = new LensRainModel();
@@ -116,7 +122,8 @@ Check(!warm.HasWater, "warm dry glass generates neither frost nor beads");
 var rate30 = new LensRainModel(); var rate60 = new LensRainModel();
 for (int i = 0; i < 600; i++) rate30.Update(1f / 30, 1, true);
 for (int i = 0; i < 1200; i++) rate60.Update(1f / 60, 1, true);
-Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.FrostDetailUniforms.SequenceEqual(rate60.FrostDetailUniforms),
+Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.FrostDetailUniforms.SequenceEqual(rate60.FrostDetailUniforms)
+    && rate30.FrostFacetUniforms.SequenceEqual(rate60.FrostFacetUniforms),
     "beads and edge growth agree at 30 and 60 FPS");
 rate30.Clear();
 Check(!rate30.HasWater && rate30.DropUniforms.All(v => v == 0) && rate30.FrostUniforms.All(v => v == 0),
@@ -161,14 +168,6 @@ int Texture(int size, PixelInternalFormat format, PixelFormat pixelFormat, float
     GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
     return id;
 }
-GL.ActiveTexture(TextureUnit.Texture2);
-int frostTexture = GL.GenTexture(); GL.BindTexture(TextureTarget.Texture2D, frostTexture);
-byte[] frostImage = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "fixtures", "frost.rgba"));
-GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, 512, 512, 0, PixelFormat.Rgba, PixelType.UnsignedByte, frostImage);
-GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
-GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
-GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
-GL.BindSampler(2, 0); GL.Uniform1(U("frostTexture"), 2);
 GL.ActiveTexture(TextureUnit.Texture0);
 const int Size = 65;
 int scene = Texture(1, PixelInternalFormat.Rgba32f, PixelFormat.Rgba, [.2f, .2f, .2f, .7f]);
@@ -255,6 +254,8 @@ void UploadWater(LensRainModel model)
     GL.Uniform4(U("rainDropShapes"), LensRainModel.MaxDrops, model.DropShapeUniforms);
     GL.Uniform4(U("frostCrystals"), LensRainModel.MaxFrost, model.FrostUniforms);
     GL.Uniform4(U("frostDetails"), LensRainModel.MaxFrost, model.FrostDetailUniforms);
+    GL.Uniform4(U("frostFacets"), LensRainModel.MaxFrostFacets, model.FrostFacetUniforms);
+    GL.Uniform4(U("frostFacetShapes"), LensRainModel.MaxFrostFacets, model.FrostFacetShapeUniforms);
 }
 F("lensRainStrength", 1); F("lensLight", 1);
 UploadWater(waterModel);
@@ -293,14 +294,18 @@ Near(Pixel(isolated, 32, 10), .2f, "GPU isolated bead leaves no vertical tail");
 onlyBead.Clear(); UploadWater(onlyBead);
 // A deterministic left-edge patch tests visibility and growth, not just any
 // changed output pixel (alpha must not count as a visible frost pixel).
+var deterministicIce = new LensRainModel();
+for (int i = 0; i < 2400; i++) deterministicIce.Update(1f / 60, 0, true);
+UploadWater(deterministicIce);
+int testFacets = deterministicIce.Crystals[0].Facets.Count;
 GL.Uniform1(U("frostCount"), 1);
 GL.Uniform4(U("frostCrystals"), .012f, .5f, .30f, 1f);
-GL.Uniform4(U("frostDetails"), 0f, 0f, .4f, 0f);
+GL.Uniform4(U("frostDetails"), 0f, 0f, .4f, (float)testFacets);
 var unborn = Render(coefficient: 0);
 Check(Enumerable.Range(0, Size * Size).All(i => Math.Abs(unborn[i * 4] - .2f) < .0001f), "GPU frost starts with bare glass");
-GL.Uniform4(U("frostDetails"), 0f, .35f, .4f, 0f);
+GL.Uniform4(U("frostDetails"), 0f, .35f, .4f, (float)testFacets);
 var growing = Render(coefficient: 0);
-GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, 0f);
+GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, (float)testFacets);
 var grown = Render(coefficient: 0);
 int Coverage(float[] px) => Enumerable.Range(0, Size * Size).Count(i => px[i * 4] > .205f);
 Check(Coverage(grown) > Coverage(growing) && Coverage(growing) > 0, "GPU frost branches grow inward instead of fading in all at once");
@@ -310,7 +315,7 @@ Check(grown.Where((_, i) => i % 4 == 0).Max() > .205f, "GPU microfacets catch li
 Check(grown.Where((_, i) => i % 4 == 0).Max() < .50f, "GPU ice transmits most scene color rather than a white painted texture");
 Check(Coverage(grown) < Size * Size / 10, "GPU frost has transparent gaps and does not create an opaque sheet");
 Near(Pixel(grown, 40, 32), .2f, "GPU edge frost leaves the center view clear");
-GL.Uniform4(U("frostDetails"), 0f, .35f, .4f, 0f);
+GL.Uniform4(U("frostDetails"), 0f, .35f, .4f, (float)testFacets);
 var growingAgain = Render(coefficient: 0);
 Check(growing.SequenceEqual(growingAgain), "GPU partially grown frost has stable branches without flicker");
 // Refraction must still alter a patterned scene when illumination is zero;
@@ -324,10 +329,12 @@ for (int y = 0; y < Size; y++) for (int x = 0; x < Size; x++)
     pattern[j + 3] = .7f;
 }
 GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, Size, Size, 0, PixelFormat.Rgba, PixelType.Float, pattern);
+GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
+GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
 F("lensLight", 0);
 GL.Uniform1(U("frostCount"), 0); var plainPattern = Render(coefficient: 0);
 GL.Uniform1(U("frostCount"), 1);
-GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, 0f);
+GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, (float)testFacets);
 var refractedPattern = Render(coefficient: 0);
 Check(Enumerable.Range(0, Size * Size).Any(i => Math.Abs(refractedPattern[i * 4] - plainPattern[i * 4]) > .025f),
     "GPU frost refracts a patterned background even with reflection unlit");
@@ -338,9 +345,10 @@ var beadPattern = Render(coefficient: 0);
 Check(Enumerable.Range(0, Size * Size).Any(i => Math.Abs(beadPattern[i * 4] - plainPattern[i * 4]) > .08f),
     "GPU optical bead actually magnifies or displaces background detail");
 patternBead.Clear(); UploadWater(patternBead);
+UploadWater(deterministicIce);
 GL.Uniform1(U("frostCount"), 1);
 GL.Uniform4(U("frostCrystals"), .012f, .5f, .30f, 1f);
-GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, 0f);
+GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, (float)testFacets);
 GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, 1, 1, 0, PixelFormat.Rgba, PixelType.Float, new[] {0f, 0f, 0f, .7f});
 var unlitIce = Render(coefficient: 0);
 Check(Enumerable.Range(0, Size * Size).All(i => unlitIce[i * 4] == 0), "GPU unlit ice does not paint light onto a black background");
@@ -372,10 +380,10 @@ foreach (float background in new[] { .82f, .95f, 1f })
         $"GPU solar glare does not wash out bead contrast on sky {background}");
     Near(Pixel(skyBead, 2, 2), background, "GPU bead rim does not tint the surrounding bright sky");
     Near(skyBead[(32 * Size + 32) * 4 + 3], .7f, "GPU bright-sky bead preserves scene alpha");
-    brightBead.Clear(); UploadWater(brightBead);
+    brightBead.Clear(); UploadWater(deterministicIce);
     GL.Uniform1(U("frostCount"), 1);
     GL.Uniform4(U("frostCrystals"), .012f, .5f, .38f, 1f);
-    GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, 0f);
+    GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, (float)testFacets);
     var skyIce = Render(float.PositiveInfinity, coefficient: 0, glare: .2f);
     Check(Enumerable.Range(0, Size * Size).Count(i => skyIce[i * 4] < background - .025f) >= 8,
         $"GPU feathered ice has visible dark facet boundaries on bright sky {background}");
@@ -403,7 +411,7 @@ try
     GL.UseProgram(0); GL.BindVertexArray(0); GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
     GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, 0); GL.BindSampler(0, 0);
     GL.ActiveTexture(TextureUnit.Texture1); GL.BindTexture(TextureTarget.Texture2D, 0);
-    GL.ActiveTexture(TextureUnit.Texture2); GL.BindTexture(TextureTarget.Texture2D, 0); GL.BindSampler(2, sampler);
+    GL.ActiveTexture(TextureUnit.Texture2); GL.BindTexture(TextureTarget.Texture2D, scene); GL.BindSampler(2, sampler);
     throw new InvalidOperationException("simulated draw failure");
 }
 catch (InvalidOperationException) { }
@@ -422,11 +430,11 @@ Check(GL.GetInteger(GetPName.TextureBinding2D) == scene && GL.GetInteger(GetPNam
 GL.ActiveTexture(TextureUnit.Texture1);
 Check(GL.GetInteger(GetPName.TextureBinding2D) == depthTexture, "GL depth texture restored");
 GL.ActiveTexture(TextureUnit.Texture2);
-Check(GL.GetInteger(GetPName.TextureBinding2D) == frostTexture && GL.GetInteger(GetPName.SamplerBinding) == 0,
-    "GL frost texture and sampler restored on the third texture unit");
+Check(GL.GetInteger(GetPName.TextureBinding2D) == 0 && GL.GetInteger(GetPName.SamplerBinding) == 0,
+    "GL unrelated third texture unit remains intact without any frost sampler");
 Check(GL.GetError() == ErrorCode.NoError, "no OpenGL errors");
 if (args.Length == 2 && args[0] == "--preview")
     OpticsPreview.Render(program, vao, Path.GetFullPath(args[1]));
 GL.DeleteSampler(sampler); GL.DeleteBuffer(vbo); GL.DeleteVertexArray(vao); GL.DeleteFramebuffer(framebuffer);
-GL.DeleteTexture(frostTexture); GL.DeleteTexture(scene); GL.DeleteTexture(depthTexture); GL.DeleteTexture(output); GL.DeleteProgram(program);
+GL.DeleteTexture(scene); GL.DeleteTexture(depthTexture); GL.DeleteTexture(output); GL.DeleteProgram(program);
 Console.WriteLine($"SUCCESS {checks} assertions");

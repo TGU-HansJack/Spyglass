@@ -6,7 +6,7 @@ namespace spyglass.src.Client
     // Lens coordinates run from top-left to bottom-right. Surface beads never move.
     internal sealed class LensRainModel
     {
-        internal const int MaxDrops = 80, MaxFrost = 2;
+        internal const int MaxDrops = 80, MaxFrost = 2, FacetsPerCrystal = 72, MaxFrostFacets = MaxFrost * FacetsPerCrystal;
         internal const float MaxDropRadius = .024f;
         internal sealed class Drop
         {
@@ -15,7 +15,9 @@ namespace spyglass.src.Client
         internal sealed class Crystal
         {
             internal float X, Y, Radius, Fade, Growth, Angle, Seed;
+            internal readonly List<IceFacet> Facets = new();
         }
+        internal readonly record struct IceFacet(float AX, float AY, float BX, float BY, float Width, float Thickness);
 
         internal readonly List<Drop> Drops = new();
         internal readonly List<Crystal> Crystals = new();
@@ -23,6 +25,8 @@ namespace spyglass.src.Client
         internal readonly float[] DropShapeUniforms = new float[MaxDrops * 4];
         internal readonly float[] FrostUniforms = new float[MaxFrost * 4];
         internal readonly float[] FrostDetailUniforms = new float[MaxFrost * 4];
+        internal readonly float[] FrostFacetUniforms = new float[MaxFrostFacets * 4];
+        internal readonly float[] FrostFacetShapeUniforms = new float[MaxFrostFacets * 4];
         private readonly Random waterRandom = new(90417), frostRandom = new(7811);
         private double remainder, spawn;
         internal bool HasWater => Drops.Count > 0 || Crystals.Count > 0;
@@ -100,7 +104,7 @@ namespace spyglass.src.Client
                 {
                     int edge = frostRandom.Next(4);
                     float along = .20f + (float)frostRandom.NextDouble() * .60f;
-                    Crystals.Add(new Crystal
+                    var crystal = new Crystal
                     {
                         X = edge == 0 ? .012f : edge == 1 ? .988f : along,
                         Y = edge == 2 ? .012f : edge == 3 ? .988f : along,
@@ -109,15 +113,62 @@ namespace spyglass.src.Client
                         // after the metal rim's inset is taken into account.
                         Radius = .34f + (float)frostRandom.NextDouble() * .07f,
                         Seed = (float)frostRandom.NextDouble(), Fade = .01f, Growth = 0
-                    });
+                    };
+                    BuildCrystal(crystal);
+                    Crystals.Add(crystal);
                 }
             }
+        }
+
+        // Finite seeded geometry, built once on formation. The reference's
+        // feathered hierarchy is recreated from tapered ice prisms, not pixels.
+        private static void BuildCrystal(Crystal crystal)
+        {
+            var random = new Random((int)(crystal.Seed * 1000000) + 319);
+            float Sample(float lo, float hi) => lo + (float)random.NextDouble() * (hi - lo);
+            for (int stem = 0; stem < 2; stem++)
+            {
+                float lean = stem == 0 ? Sample(-.28f, -.12f) : Sample(.12f, .30f);
+                float reach = stem == 0 ? .98f : Sample(.78f, .91f);
+                float originY = Sample(-.035f, .035f);
+                float Curve(float t) => originY + lean * t * t + MathF.Sin(t * 3.1f) * .028f;
+                float previousX = 0, previousY = originY;
+                for (int segment = 1; segment <= 4; segment++)
+                {
+                    float t = segment / 4f, x = t * reach, y = Curve(t);
+                    crystal.Facets.Add(new IceFacet(previousX, previousY, x, y, .009f - .004f * t, Sample(.60f, .90f)));
+                    previousX = x; previousY = y;
+                }
+                for (int branch = 0; branch < 8; branch++)
+                {
+                    float t = .10f + branch * .105f + Sample(-.012f, .012f);
+                    float x = t * reach, y = Curve(t);
+                    for (int side = -1; side <= 1; side += 2)
+                    {
+                        float length = (.30f - t * .16f) * Sample(.80f, 1.12f);
+                        float vx = Sample(.52f, .69f), vy = side * Sample(.75f, .90f) + lean * .30f;
+                        float norm = MathF.Sqrt(vx * vx + vy * vy); vx /= norm; vy /= norm;
+                        float bx = x + vx * length, by = y + vy * length;
+                        float width = (.0085f - t * .003f) * Sample(.72f, 1.20f);
+                        crystal.Facets.Add(new IceFacet(x, y, bx, by, width, Sample(.45f, .90f)));
+                        // Secondary needles vary in length and taper; alternate
+                        // attachment points avoid a complete six-arm snowflake.
+                        float joint = branch % 2 == 0 ? .43f : .64f;
+                        float tx = x + vx * length * joint, ty = y + vy * length * joint;
+                        float twig = length * Sample(.25f, .40f);
+                        crystal.Facets.Add(new IceFacet(tx, ty, tx + (vx * .38f + Math.Abs(vy) * .60f) * twig,
+                            ty + (vy * .38f + vx * side * .76f) * twig, width * .52f, Sample(.28f, .55f)));
+                    }
+                }
+            }
+            if (crystal.Facets.Count > FacetsPerCrystal) crystal.Facets.RemoveRange(FacetsPerCrystal, crystal.Facets.Count - FacetsPerCrystal);
         }
 
         private void UploadUniforms()
         {
             Array.Clear(DropUniforms); Array.Clear(DropShapeUniforms);
             Array.Clear(FrostUniforms); Array.Clear(FrostDetailUniforms);
+            Array.Clear(FrostFacetUniforms); Array.Clear(FrostFacetShapeUniforms);
             for (int i = 0; i < Drops.Count; i++)
             {
                 int j = i * 4; Drop d = Drops[i];
@@ -132,6 +183,14 @@ namespace spyglass.src.Client
                 FrostUniforms[j + 2] = c.Radius; FrostUniforms[j + 3] = c.Fade;
                 FrostDetailUniforms[j] = c.Angle; FrostDetailUniforms[j + 1] = c.Growth;
                 FrostDetailUniforms[j + 2] = c.Seed;
+                FrostDetailUniforms[j + 3] = c.Facets.Count;
+                for (int f = 0; f < c.Facets.Count; f++)
+                {
+                    int k = (i * FacetsPerCrystal + f) * 4; IceFacet facet = c.Facets[f];
+                    FrostFacetUniforms[k] = facet.AX; FrostFacetUniforms[k + 1] = facet.AY;
+                    FrostFacetUniforms[k + 2] = facet.BX; FrostFacetUniforms[k + 3] = facet.BY;
+                    FrostFacetShapeUniforms[k] = facet.Width; FrostFacetShapeUniforms[k + 1] = facet.Thickness;
+                }
             }
         }
     }
