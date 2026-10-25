@@ -8,6 +8,9 @@ namespace spyglass.src.Client
     {
         internal const int MaxDrops = 80, MaxFrost = 2, FacetsPerCrystal = 72, MaxFrostFacets = MaxFrost * FacetsPerCrystal;
         internal const float MaxDropRadius = .024f;
+        internal const long IdleClearMilliseconds = 30000;
+        private long lastUseMilliseconds = -1;
+        internal bool IsInUse { get; private set; }
         internal sealed class Drop
         {
             internal float X, Y, Radius, Shape, Fade, Seed;
@@ -30,6 +33,19 @@ namespace spyglass.src.Client
         private readonly Random waterRandom = new(90417), frostRandom = new(7811);
         private double remainder, spawn;
         internal bool HasWater => Drops.Count > 0 || Crystals.Count > 0;
+
+        internal void UpdateUsage(long nowMilliseconds, bool inUse)
+        {
+            if (nowMilliseconds < 0) return;
+            // Elapsed time is session-local. Restart a clock on a new session
+            // instead of expiring from a negative or wrapped subtraction.
+            if (lastUseMilliseconds < 0 || nowMilliseconds < lastUseMilliseconds)
+                lastUseMilliseconds = nowMilliseconds;
+            IsInUse = inUse;
+            if (inUse) lastUseMilliseconds = nowMilliseconds;
+            else if (nowMilliseconds - lastUseMilliseconds >= IdleClearMilliseconds && HasWater)
+                Clear();
+        }
 
         internal void Clear()
         {

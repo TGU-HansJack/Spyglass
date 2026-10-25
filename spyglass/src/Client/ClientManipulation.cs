@@ -162,17 +162,6 @@ namespace spyglass.src
             }
         }
 
-        internal static bool CtrlHeld()
-        {
-            try
-            {
-                var state = capi?.Input?.KeyboardKeyStateRaw;
-                return state != null && state.Length > (int)GlKeys.LControl && state[(int)GlKeys.LControl]
-                    || state != null && state.Length > (int)GlKeys.RControl && state[(int)GlKeys.RControl];
-            }
-            catch { return false; }
-        }
-
         public static bool AttemptingToZoom()
         {
             // validate if we can in fact, zoom.

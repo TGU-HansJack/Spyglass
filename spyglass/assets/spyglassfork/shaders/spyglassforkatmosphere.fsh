@@ -24,7 +24,6 @@ uniform vec4 frostDetails[2];
 uniform vec4 frostFacets[144];
 uniform vec4 frostFacetShapes[144];
 uniform vec2 rainInset;
-uniform float flickProgress;
 in vec2 texCoord;
 layout(location = 0) out vec4 outColor;
 
@@ -231,13 +230,6 @@ void main()
         color *= 1.0 - crystalBoundary * brightEdge;
         float facetReflection = pow(max(0.0, dot(frost.xy, incidentLight)), 2.0) * 0.10 * illumination;
         color = mix(color, gradeAir(vec3(0.92, 0.98, 1.0)), facetReflection);
-    }
-    if (flickProgress < 1.0)
-    {
-        // lensPoint uses top-left origin after the screen UV Y flip.
-        float sweep = (lensPoint.x + lensPoint.y) * 0.5;
-        float blade = exp(-pow((sweep - flickProgress) / 0.018, 2.0));
-        color = mix(color, gradeAir(vec3(0.84, 0.88, 0.90)), blade * 0.20);
     }
     outColor = vec4(mix(scene.rgb, color, fade), scene.a);
 }

@@ -63,8 +63,6 @@ namespace spyglass.src
                 setRatioToDefault();
         }
 
-        internal static void FlickLensWater() => instance?.atmosphericOptics?.FlickWater();
-        private static SpyglassMod instance;
 
         public override void Start(ICoreAPI api)
         {
@@ -86,9 +84,7 @@ namespace spyglass.src
 
         public override void StartClientSide(ICoreClientAPI api)
         {
-            instance = this;
             clientApi = api;
-            api.Event.MouseDown += OnMouseDown;
             gameRuntime = 0;
             clientLogic = new ClientManipulation(api);
             api.Network.RegisterChannel(ChannelName)
@@ -106,15 +102,6 @@ namespace spyglass.src
             atmosphericOptics = new AtmosphericOpticsRenderer(api);
             tickListenerId = api.Event.RegisterGameTickListener(OnGameTick, 4);
             setRatioToDefault();
-        }
-
-        private void OnMouseDown(MouseEvent args)
-        {
-            if (args.Button == EnumMouseButton.Right && zoomed && ClientManipulation.CtrlHeld())
-            {
-                FlickLensWater();
-                args.Handled = true;
-            }
         }
 
         public override void StartServerSide(ICoreServerAPI api)
@@ -139,13 +126,14 @@ namespace spyglass.src
         private void OnGameTick(float dt)
         {
             gameRuntime += (double)dt;
+            atmosphericOptics?.UpdateUsage(clientApi.ElapsedMilliseconds,
+                ClientManipulation.AttemptingToZoom() && ClientManipulation.EnableEffect());
         }
 
         public override void Dispose()
         {
             atmosphericOptics?.Dispose();
             atmosphericOptics = null;
-            if (instance == this) instance = null;
             if (tickListenerId.HasValue)
             {
                 clientApi.Event.UnregisterGameTickListener(tickListenerId.Value);
@@ -158,7 +146,6 @@ namespace spyglass.src
             }
             zoomWheel?.Dispose();
             zoomWheel = null;
-            clientApi?.Event.MouseDown -= OnMouseDown;
             clientApi = null;
             base.Dispose();
         }

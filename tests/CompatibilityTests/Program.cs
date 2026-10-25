@@ -48,6 +48,10 @@ static class Regression
         Set(modType, "loadedConfig", config);
         Check(mod.GetName().Name == "spyglassfork", "fork assembly identity");
         Check((string)Get(modType, "ModId")! == "spyglassfork", "fork mod identity");
+        Check(mod.GetName().Version == new Version(0, 6, 3, 0), "assembly release version is fixed at 0.6.3");
+        Check(AccessTools.Method(modType, "FlickLensWater") == null
+            && AccessTools.DeclaredMethod(modType, "OnMouseDown") == null
+            && AccessTools.Method(logic, "CtrlHeld") == null, "manual wipe entry points and Ctrl mouse interception are removed");
 
         var harmony = new Harmony("spyglassfork-regression");
         try {
@@ -282,6 +286,15 @@ static class Regression
                 "get_Event" => events, "get_Shader" => shaders, "get_Logger" => logger, "get_Assets" => assets, _ => Proxy.Default(m.ReturnType)
             });
             var renderer = (IRenderer)Activator.CreateInstance(rendererType, BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] {api}, null)!;
+            var surface = AccessTools.Field(rendererType, "rain").GetValue(renderer)!;
+            var surfaceType = surface.GetType();
+            AccessTools.Method(surfaceType, "AddDrop").Invoke(surface, new object[] {.5f, .5f, .015f});
+            var usage = AccessTools.Method(rendererType, "UpdateUsage");
+            usage.Invoke(renderer, new object[] {1000L, true});
+            usage.Invoke(renderer, new object[] {30999L, false});
+            Check((bool)AccessTools.PropertyGetter(surfaceType, "HasWater").Invoke(surface, null)!, "renderer keeps effects before the idle deadline");
+            usage.Invoke(renderer, new object[] {31000L, false});
+            Check(!(bool)AccessTools.PropertyGetter(surfaceType, "HasWater").Invoke(surface, null)!, "renderer expires idle surface without invoking any graphics API");
             Check(registered.SequenceEqual(new[] {EnumRenderStage.AfterOIT, EnumRenderStage.AfterBlit}) && reloadAdds == 1,
                 "atmosphere registers depth validation, final rendering and shader reload");
             bool Resources() => (bool)AccessTools.Method(rendererType, "EnsureResources").Invoke(renderer, null)!;

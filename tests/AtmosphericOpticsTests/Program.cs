@@ -127,7 +127,27 @@ Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.FrostDeta
     "beads and edge growth agree at 30 and 60 FPS");
 rate30.Clear();
 Check(!rate30.HasWater && rate30.DropUniforms.All(v => v == 0) && rate30.FrostUniforms.All(v => v == 0),
-    "flick clears all surface states and uploaded data");
+    "surface reset clears all surface states and uploaded data");
+var idle = new LensRainModel();
+idle.AddDrop(.5f, .5f, .015f);
+for (int i = 0; i < 2400; i++) idle.Update(1f / 60, 0, true);
+idle.UpdateUsage(100000, true);
+Check(idle.IsInUse && idle.Crystals.Count > 0, "using a lens records active use with surface effects");
+idle.UpdateUsage(129999, false);
+Check(idle.HasWater, "surface effects survive an interruption shorter than 30 seconds");
+idle.UpdateUsage(130000, false);
+Check(!idle.HasWater && !idle.IsInUse, "30 seconds without use clears beads and procedural frost together");
+Check(idle.DropUniforms.All(v => v == 0) && idle.FrostUniforms.All(v => v == 0)
+    && idle.FrostFacetUniforms.All(v => v == 0), "idle expiry clears GPU surface data without a render frame");
+idle.UpdateUsage(140000, true); idle.AddDrop(.5f, .5f, .015f);
+idle.UpdateUsage(169000, false); idle.UpdateUsage(169000, true); idle.UpdateUsage(180000, false);
+Check(idle.HasWater, "resuming observation restarts the idle timeout");
+idle.UpdateUsage(199000, false);
+Check(!idle.HasWater, "the restarted timeout expires from the latest use");
+idle.AddDrop(.5f, .5f, .015f); idle.UpdateUsage(100, false);
+Check(idle.HasWater, "a new session clock does not cause an invalid immediate idle expiry");
+idle.UpdateUsage(30100, false);
+Check(!idle.HasWater, "idle expiry resumes normally after a session clock reset");
 
 using var window = new NativeWindow(new NativeWindowSettings {
     ClientSize = new Vector2i(65, 65), StartVisible = false, StartFocused = false,
@@ -187,7 +207,6 @@ GL.Uniform2(U("frameSize"), (float)Size, (float)Size);
 GL.Uniform3(U("fogColor"), .8f, .8f, .8f);
 GL.Uniform4(U("colorGrade"), 1f, 1f, 1f, 0f); F("sepia", 0);
 GL.Uniform2(U("sunScreen"), .5f, .5f); GL.Uniform3(U("sunViewDirection"), 0f, 0f, -1f);
-F("flickProgress", 1);
 GL.Uniform1(U("frostCount"), 0);
 var projection = Projection(1.2, .1, 4096);
 GL.UniformMatrix4(U("inverseProjection"), 1, false, Inverse(projection));

@@ -25,8 +25,6 @@ namespace spyglass.src.Client
         private float targetLensRain;
         private readonly LensRainModel rain = new();
         private string rainLens;
-        private float flickProgress = 1f;
-        private int flickPasses;
         private bool frostConditions;
 
         public double RenderOrder => 0.5;
@@ -128,13 +126,10 @@ namespace spyglass.src.Client
             }
         }
 
-        internal void FlickWater()
-        {
-            if (!rain.HasWater) return;
-            rain.Clear();
-            flickProgress = 0f;
-            flickPasses = 2;
-        }
+        // Called by the client tick even if graphics are disabled or the shader
+        // has failed. No graphics context is needed to expire an unused lens.
+        internal void UpdateUsage(long nowMilliseconds, bool inUse)
+            => rain.UpdateUsage(nowMilliseconds, inUse);
 
         private void RenderFrame(float deltaTime, EnumRenderStage stage)
         {
@@ -159,21 +154,14 @@ namespace spyglass.src.Client
             if (render.ShaderUniforms.CameraUnderwater > 0) { rain.Clear(); frostConditions = false; return; }
             SampleWeather();
             string lens = ClientManipulation.GetHeldSpyglassMaterial() + ":" + ClientManipulation.GetHeldLensGlass();
-            if (lens != rainLens) { rain.Clear(); rainLens = lens; }
+            // A missing held spyglass resolves to fallback material names. Do
+            // not treat putting the item away as switching the actual lens.
+            if (rain.IsInUse && lens != rainLens) { rain.Clear(); rainLens = lens; }
             float rainStrength = SpyglassMod.config.enableLensRain
                 ? AtmosphericOpticsModel.Strength(SpyglassMod.config.lensRainStrength) : 0;
             frostConditions &= SpyglassMod.config.enableLensRain;
             if (rainStrength <= 0 && !frostConditions) rain.Clear();
-            else rain.Update(deltaTime, rainStrength > 0 && fade > .01f ? targetLensRain : 0, frostConditions);
-            if (flickPasses > 0)
-            {
-                flickProgress += Math.Max(0, deltaTime) / .38f;
-                if (flickProgress >= 1f)
-                {
-                    flickPasses--;
-                    flickProgress = flickPasses > 0 ? 0f : 1f;
-                }
-            }
+            else if (rain.IsInUse) rain.Update(deltaTime, rainStrength > 0 ? targetLensRain : 0, frostConditions);
             if (fade <= 0.001f) return;
             extinction = AtmosphericOpticsModel.Approach(extinction, targetExtinction, deltaTime);
             float coefficient = SpyglassMod.config.enableAtmosphericOptics
@@ -188,7 +176,7 @@ namespace spyglass.src.Client
             float sunZ = (float)(view[2] * sun.X + view[6] * sun.Y + view[10] * sun.Z);
             float glare = SpyglassMod.config.enableAtmosphericOptics && sunZ < 0 ? AtmosphericOpticsModel.Glare(sun.Y, uniforms.SunSpecularIntensity,
                 ambient.BlendedCloudDensity, ambient.BlendedFogDensity, SpyglassMod.config.sunGlareStrength) : 0;
-            if (coefficient <= 0.000001f && glare <= 0.0001f && !rain.HasWater && flickProgress >= 1f) return;
+            if (coefficient <= 0.000001f && glare <= 0.0001f && !rain.HasWater) return;
             var buffers = render.FrameBuffers;
             var primary = buffers != null && buffers.Count > (int)EnumFrameBuffer.Primary ? buffers[(int)EnumFrameBuffer.Primary] : null;
             if (!sceneReady || primary == null || primary.Disposed || primary.DepthTextureId <= 0
@@ -256,7 +244,6 @@ namespace spyglass.src.Client
                 shader.Uniforms4("frostDetails", LensRainModel.MaxFrost, rain.FrostDetailUniforms);
                 shader.Uniforms4("frostFacets", LensRainModel.MaxFrostFacets, rain.FrostFacetUniforms);
                 shader.Uniforms4("frostFacetShapes", LensRainModel.MaxFrostFacets, rain.FrostFacetShapeUniforms);
-                shader.Uniform("flickProgress", flickProgress);
                 float rimInset = config.GetVinetteStyle() == VignetteStyle.none ? 0 : (float)(SpyglassOverlay.MetalWidth * 1.1 / aperture.Width);
                 shader.Uniform("rainInset", Math.Min(.45f, rimInset), Math.Min(.45f, rimInset));
                 shader.Uniform("extinction", coefficient);

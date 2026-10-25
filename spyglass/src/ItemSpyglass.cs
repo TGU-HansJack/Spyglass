@@ -25,12 +25,6 @@ namespace spyglass.src
                 {
                     ActionLangCode = SpyglassMod.ModId + ":item-spyglass-use",
                     MouseButton = EnumMouseButton.Right
-                },
-                new WorldInteraction
-                {
-                    ActionLangCode = SpyglassMod.ModId + ":item-spyglass-flick-water",
-                    MouseButton = EnumMouseButton.Right,
-                    HotKeyCode = "ctrl"
                 }
             };
             interactions.AddRange(base.GetHeldInteractionHelp(inSlot));
@@ -39,13 +33,6 @@ namespace spyglass.src
 
         public override void OnHeldInteractStart(ItemSlot slot, EntityAgent byEntity, BlockSelection blockSel, EntitySelection entitySel, bool firstEvent, ref EnumHandHandling handling)
         {
-            if (byEntity.Controls.CtrlKey || (byEntity.World.Side == EnumAppSide.Client && ClientManipulation.CtrlHeld()))
-            {
-                if (byEntity.World.Side == EnumAppSide.Client && ClientManipulation.IsLocalPlayer(byEntity))
-                    SpyglassMod.FlickLensWater();
-                handling = EnumHandHandling.Handled;
-                return;
-            }
             if (!byEntity.Controls.Sneak)
             {
                 handling = EnumHandHandling.Handled;
@@ -57,11 +44,6 @@ namespace spyglass.src
 
         public override bool OnHeldInteractStep(float secondsUsed, ItemSlot slot, EntityAgent byEntity, BlockSelection blockSel, EntitySelection entitySel)
         {
-            if (byEntity.Controls.CtrlKey || (byEntity.World.Side == EnumAppSide.Client && ClientManipulation.CtrlHeld()))
-            {
-                updateState(false, byEntity);
-                return false;
-            }
             if (!byEntity.Controls.Sneak)
             {
                 updateState(true, byEntity);
