@@ -11,6 +11,8 @@ namespace spyglass.src.Client
         private readonly bool depthMask = GL.GetBoolean(GetPName.DepthWritemask);
         private readonly int program = GL.GetInteger(GetPName.CurrentProgram), vao = GL.GetInteger(GetPName.VertexArrayBinding);
         private readonly int arrayBuffer = GL.GetInteger(GetPName.ArrayBufferBinding);
+        private readonly int blendSrcRgb = GL.GetInteger(GetPName.BlendSrcRgb), blendDstRgb = GL.GetInteger(GetPName.BlendDstRgb);
+        private readonly int blendSrcAlpha = GL.GetInteger(GetPName.BlendSrcAlpha), blendDstAlpha = GL.GetInteger(GetPName.BlendDstAlpha);
         private readonly int activeTexture = GL.GetInteger(GetPName.ActiveTexture);
         private readonly int[] textures = new int[2], samplers = new int[2];
 
@@ -31,6 +33,8 @@ namespace spyglass.src.Client
             Restore(EnableCap.Blend, blend);
             Restore(EnableCap.CullFace, cull);
             GL.DepthMask(depthMask);
+            GL.BlendFuncSeparate((BlendingFactorSrc)blendSrcRgb, (BlendingFactorDest)blendDstRgb,
+                (BlendingFactorSrc)blendSrcAlpha, (BlendingFactorDest)blendDstAlpha);
             GL.UseProgram(program);
             GL.BindVertexArray(vao);
             GL.BindBuffer(BufferTarget.ArrayBuffer, arrayBuffer);

@@ -20,6 +20,12 @@ Near(1 - Math.Exp(-AtmosphericOpticsModel.Extinction(OpticsPrecipitation.Snow, 1
 Near(Rain(.5f), Rain() / 2, "actual precipitation intensity scales extinction");
 Near(Rain(1, 2), Rain() * 2, "strength scales extinction");
 Near(Rain(0), 0, "clear weather adds no attenuation");
+Near(AtmosphericOpticsModel.LensRainIntensity(OpticsPrecipitation.Rain, .6f, 112, 110), .6f, "exposed lens follows actual rainfall");
+Near(AtmosphericOpticsModel.LensRainIntensity(OpticsPrecipitation.Rain, 1, 112, 114), 0, "roof shelters the lens from rain impacts");
+Near(AtmosphericOpticsModel.LensRainIntensity(OpticsPrecipitation.Rain, 0, 112, 110), 0, "dry weather produces no lens impacts");
+Near(AtmosphericOpticsModel.LensRainIntensity(OpticsPrecipitation.Snow, 1, 112, 110), 0, "snow does not produce liquid rain impacts");
+Near(AtmosphericOpticsModel.LensRainIntensity(OpticsPrecipitation.Hail, 1, 112, 110), 0, "hail does not produce liquid rain impacts");
+Near(AtmosphericOpticsModel.LensRainIntensity(OpticsPrecipitation.Rain, 1, double.NaN, 110), 0, "invalid camera height cannot enable rain impacts");
 Near(AtmosphericOpticsModel.Extinction(OpticsPrecipitation.Hail, 1, 1), Rain(), "hail uses rain optics");
 Near(AtmosphericOpticsModel.Extinction(OpticsPrecipitation.None, 1, 1), 0, "no precipitation adds no attenuation");
 Check(AtmosphericOpticsModel.ResolvePrecipitation(OpticsPrecipitation.Auto, -1, 0) == OpticsPrecipitation.Snow
@@ -74,6 +80,32 @@ foreach (var (fov, near, far) in new[] { (1.2, .1, 2048d), (.12, .01, 1024d), (.
 }
 Check(!AtmosphericOpticsModel.InvertProjection(new double[16], new float[16]), "singular projection rejected");
 
+var merging = new LensRainModel();
+merging.AddDrop(.5f, .3f, .012f); merging.AddDrop(.51f, .3f, .012f);
+merging.Update(1f / 60, 0);
+Check(merging.Drops.Count == 1 && merging.Drops[0].Radius > .016f, "touching beads merge into a larger drop");
+float initialY = merging.Drops[0].Y;
+for (int i = 0; i < 180; i++) merging.Update(1f / 60, 0);
+Check(merging.Drops.Count == 1 && merging.Drops[0].Y > initialY + .1f, "large beads slide down under gravity");
+Check(merging.Trails.Count > 0, "sliding beads leave persistent water trails");
+for (int i = 0; i < 600; i++) merging.Update(1f / 60, 0);
+Check(merging.Drained > 0, "runoff reaches the bottom and drains away");
+var wet = new LensRainModel();
+for (int i = 0; i < 1800; i++) wet.Update(1f / 60, 1);
+Check(wet.HasWater && wet.Pool > .005f && wet.Pool <= .055f, "sustained rain accumulates bounded water at the bottom");
+Check(wet.Drops.Count <= LensRainModel.MaxDrops && wet.Trails.Count <= LensRainModel.MaxTrails, "water simulation has bounded drop and trail counts");
+wet.Update(1f / 60, 0);
+Check(wet.HasWater, "entering shelter stops new rain without erasing existing water");
+for (int i = 0; i < 7200; i++) wet.Update(1f / 60, 0);
+Check(!wet.HasWater, "sheltered lens dries after runoff and evaporation");
+var rate30 = new LensRainModel(); var rate60 = new LensRainModel();
+for (int i = 0; i < 600; i++) rate30.Update(1f / 30, 1);
+for (int i = 0; i < 1200; i++) rate60.Update(1f / 60, 1);
+Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.Pool == rate60.Pool,
+    "fixed-step water simulation agrees at 30 and 60 FPS");
+rate30.Clear(); rate30.Update(1f / 60, 0);
+Check(!rate30.HasWater && rate30.DropUniforms.All(v => v == 0), "lens reset clears water and uploaded drop data");
+
 using var window = new NativeWindow(new NativeWindowSettings {
     ClientSize = new Vector2i(65, 65), StartVisible = false, StartFocused = false,
     API = ContextAPI.OpenGL, APIVersion = new Version(3, 3), Profile = ContextProfile.Core,
@@ -86,7 +118,8 @@ Console.WriteLine("GPU " + GL.GetString(StringName.Renderer));
 int Compile(ShaderType type, string path)
 {
     int id = GL.CreateShader(type);
-    GL.ShaderSource(id, File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "shaders", path)));
+    string source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "shaders", path));
+    GL.ShaderSource(id, source);
     GL.CompileShader(id);
     GL.GetShader(id, ShaderParameter.CompileStatus, out int status);
     Check(status != 0, "actual " + type + " compiles: " + GL.GetShaderInfoLog(id));
@@ -184,13 +217,52 @@ GL.Uniform2(U("sunScreen"), .5f, .5f);
 Near(Pixel(Render(coefficient: 0, glare: AtmosphericOpticsModel.Glare(1, 0, 0, 0, 1))), .2, "GPU engine-occluded sun contributes no glare");
 Near(halo[(32 * Size + 32) * 4 + 3], .7, "GPU scene alpha preserved");
 
+var waterModel = new LensRainModel();
+waterModel.AddDrop(.5f, .5f, .08f);
+waterModel.Update(1f / 60, 0);
+void UploadWater(LensRainModel model)
+{
+    GL.Uniform1(U("rainDropCount"), model.Drops.Count);
+    GL.Uniform1(U("rainTrailCount"), model.Trails.Count);
+    GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, model.DropUniforms);
+    GL.Uniform4(U("rainTrails"), LensRainModel.MaxTrails, model.TrailUniforms);
+    F("rainPool", model.Pool);
+}
+F("lensRainStrength", 1); F("lensLight", 1);
+UploadWater(waterModel);
+var beads = Render(coefficient: 0);
+Check(Pixel(beads) < .2f, "GPU water beads have filled centers rather than hollow rings");
+Near(Pixel(beads, 2, 2), .2, "GPU dry glass outside the bead is unchanged");
+for (int i = 0; i < 30; i++) waterModel.Update(1f / 60, 0);
+UploadWater(waterModel);
+Check(!beads.SequenceEqual(Render(coefficient: 0)), "GPU water follows simulated downward motion");
+Near(beads[(32 * Size + 32) * 4 + 3], .7, "GPU water preserves scene alpha");
+F("lensRainStrength", 0);
+var disabledRain = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size * Size).All(i => Math.Abs(disabledRain[i * 4] - .2f) < .0001f), "GPU zero lens rain strength preserves the scene");
+F("lensRainStrength", 1);
+Check(disabledRain.SequenceEqual(Render(coefficient: 0, fade: 0)), "GPU water fades out with zoom");
+Near(Pixel(Render(coefficient: 0, square: true), 2, 2), .031, "GPU water stays inside the lens");
+waterModel.Clear(); waterModel.Update(1f / 60, 0); UploadWater(waterModel);
+Check(disabledRain.SequenceEqual(Render(coefficient: 0)), "GPU dry lens has no residual effect");
+// Isolate a vertical residual stream and the bottom meniscus.
+GL.Uniform1(U("rainTrailCount"), 1);
+GL.Uniform4(U("rainTrails"), .5f, .1f, .9f, 1f);
+Check(Pixel(Render(coefficient: 0)) < .2f, "GPU residual streams shade a vertical water path");
+GL.Uniform1(U("rainTrailCount"), 0); F("rainPool", .04f);
+Check(Pixel(Render(coefficient: 0), 32, 0) < .2f, "GPU accumulated water occupies the bottom edge");
+Near(Pixel(Render(coefficient: 0), 32, 60), .2, "GPU bottom water does not flood the upper lens");
+F("rainPool", 0); F("lensRainStrength", 0);
+
 GL.Enable(EnableCap.DepthTest); GL.Enable(EnableCap.Blend); GL.Enable(EnableCap.CullFace); GL.DepthMask(true);
+GL.BlendFuncSeparate(BlendingFactorSrc.SrcAlpha, BlendingFactorDest.OneMinusSrcAlpha, BlendingFactorSrc.One, BlendingFactorDest.Zero);
 int sampler = GL.GenSampler(); GL.BindSampler(0, sampler);
 GL.ActiveTexture(TextureUnit.Texture3);
 try
 {
     using var state = new OpticsRenderState();
     GL.Disable(EnableCap.DepthTest); GL.Disable(EnableCap.Blend); GL.Disable(EnableCap.CullFace); GL.DepthMask(false);
+    GL.BlendFunc(BlendingFactor.One, BlendingFactor.One);
     GL.UseProgram(0); GL.BindVertexArray(0); GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
     GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, 0); GL.BindSampler(0, 0);
     GL.ActiveTexture(TextureUnit.Texture1); GL.BindTexture(TextureTarget.Texture2D, 0);
@@ -201,6 +273,10 @@ Check(GL.IsEnabled(EnableCap.DepthTest) && GL.IsEnabled(EnableCap.Blend) && GL.I
     && GL.GetBoolean(GetPName.DepthWritemask), "GL state restored after a draw exception");
 Check(GL.GetInteger(GetPName.CurrentProgram) == program && GL.GetInteger(GetPName.VertexArrayBinding) == vao
     && GL.GetInteger(GetPName.ArrayBufferBinding) == vbo, "GL shader and geometry bindings restored");
+Check(GL.GetInteger(GetPName.BlendSrcRgb) == (int)BlendingFactorSrc.SrcAlpha
+    && GL.GetInteger(GetPName.BlendDstRgb) == (int)BlendingFactorDest.OneMinusSrcAlpha
+    && GL.GetInteger(GetPName.BlendSrcAlpha) == (int)BlendingFactorSrc.One
+    && GL.GetInteger(GetPName.BlendDstAlpha) == (int)BlendingFactorDest.Zero, "GL separate blend factors restored after lens drawing");
 Check(GL.GetInteger(GetPName.ActiveTexture) == (int)TextureUnit.Texture3, "GL active texture unit restored");
 GL.ActiveTexture(TextureUnit.Texture0);
 Check(GL.GetInteger(GetPName.TextureBinding2D) == scene && GL.GetInteger(GetPName.SamplerBinding) == sampler,

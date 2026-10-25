@@ -13,8 +13,48 @@ uniform float dayWeight;
 uniform float glareStrength;
 uniform vec3 sunViewDirection;
 uniform vec2 sunScreen;
+uniform float lensRainStrength;
+uniform float lensLight;
+uniform int rainDropCount;
+uniform int rainTrailCount;
+uniform vec4 rainDrops[32];
+uniform vec4 rainTrails[24];
+uniform float rainPool;
+uniform vec2 rainInset;
 in vec2 texCoord;
 layout(location = 0) out vec4 outColor;
+
+// Filled beads and residual streams, in lens coordinates with Y pointing down.
+// Water persists in the CPU model; these are not expanding impact rings.
+float waterHeight(vec2 p)
+{
+    float height = 0.0;
+    for (int i = 0; i < rainDropCount; i++)
+    {
+        vec4 drop = rainDrops[i];
+        vec2 q = (p - drop.xy) / max(drop.z, 0.001);
+        float moving = clamp(drop.w * 6.0, 0.0, 1.0);
+        q.y /= 1.0 + moving * 0.65;
+        q.x /= clamp(1.0 + q.y * moving * 0.20, 0.65, 1.2);
+        float body = max(0.0, 1.0 - dot(q, q));
+        height = max(height, body * body);
+    }
+    for (int i = 0; i < rainTrailCount; i++)
+    {
+        vec4 trail = rainTrails[i];
+        float width = 0.0025 + trail.w * 0.002;
+        float across = max(0.0, 1.0 - abs(p.x - trail.x) / width);
+        float ends = smoothstep(trail.y, trail.y + 0.015, p.y)
+            * (1.0 - smoothstep(trail.z - 0.015, trail.z, p.y));
+        height = max(height, across * across * ends * trail.w * 0.32);
+    }
+    if (rainPool > 0.0001)
+    {
+        float top = 1.0 - rainPool * (0.85 + 0.10 * sin(p.x * 23.0) + 0.05 * sin(p.x * 59.0));
+        height = max(height, smoothstep(top - 0.003, top + 0.005, p.y) * 0.65);
+    }
+    return height;
+}
 
 float hueChannel(float lo, float hi, float h)
 {
@@ -63,7 +103,14 @@ void main()
     vec2 farEdge = aperture.xy + aperture.zw;
     if (any(lessThan(texCoord, aperture.xy)) || any(greaterThan(texCoord, farEdge))) discard;
     vec4 scene = texture(sceneTexture, texCoord);
-    vec3 color = scene.rgb;
+    vec2 lensPoint = ((texCoord - aperture.xy) / aperture.zw - rainInset) / max(vec2(0.01), 1.0 - 2.0 * rainInset);
+    lensPoint.y = 1.0 - lensPoint.y;
+    float water = lensRainStrength > 0.0 ? waterHeight(lensPoint) : 0.0;
+    if (any(lessThan(lensPoint, vec2(0.0))) || any(greaterThan(lensPoint, vec2(1.0)))) water = 0.0;
+    vec2 normal = vec2(dFdx(water), dFdy(water)) * aperture.zw * frameSize / 128.0;
+    vec2 refractedUv = clamp(texCoord + normal * lensRainStrength * 0.025,
+        aperture.xy + 0.5 / frameSize, farEdge - 0.5 / frameSize);
+    vec3 color = texture(sceneTexture, refractedUv).rgb;
     float depth = texture(depthTexture, texCoord).r;
     vec4 view = inverseProjection * vec4(texCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     // A cleared depth represents the sky, which keeps the engine's existing fog.
@@ -85,5 +132,11 @@ void main()
     float angular = smoothstep(0.9781476, 1.0, dot(normalize(ray.xyz), normalize(sunViewDirection)));
     float halo = exp(-4.0 * dot(delta, delta) / (radius * radius)) * angular * inView * glareStrength;
     color = mix(color, gradeAir(vec3(1.0, 0.97, 0.90)), clamp(halo, 0.0, 0.20));
+    if (water > 0.0)
+    {
+        float edgeShade = clamp(length(normal) * 0.4, 0.0, 0.12);
+        float highlight = clamp((-normal.x + normal.y) * 0.35, 0.0, 0.16) * clamp(lensLight, 0.0, 1.0);
+        color *= 1.0 + (highlight - edgeShade - water * 0.08) * lensRainStrength;
+    }
     outColor = vec4(mix(scene.rgb, color, fade), scene.a);
 }

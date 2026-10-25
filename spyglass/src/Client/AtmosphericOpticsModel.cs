@@ -40,6 +40,10 @@ namespace spyglass.src.Client
             return -MathF.Log(transmission) / 256 * Unit(intensity) * Strength(strength);
         }
 
+        internal static float LensRainIntensity(OpticsPrecipitation kind, float rainfall, double eyeHeight, int rainHeight)
+            => kind == OpticsPrecipitation.Rain && double.IsFinite(eyeHeight) && eyeHeight > rainHeight + 1.0
+                ? Unit(rainfall) : 0;
+
         internal static float Approach(float current, float target, float dt)
             => current + (target - current) * (1 - MathF.Exp(-(float.IsFinite(dt) ? Math.Clamp(dt, 0, 1) : 0) / 0.35f));
 

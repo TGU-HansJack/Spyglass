@@ -1,0 +1,211 @@
+{
+  "code": "spyglass",
+  "class": "spyglassfork:ItemSpyglass",
+  "attributes": {
+    "displaycaseable": true,
+    "shelvable": true,
+    "handbook": {
+      "groupBy": [
+        "spyglass-*"
+      ]
+    },
+    "groundStorageTransform": {
+      "translation": {
+        "x": -0.015,
+        "y": -0.46,
+        "z": -0.1
+      },
+      "rotation": {
+        "x": 0,
+        "y": 45,
+        "z": 1.5
+      },
+      "scale": 0.95
+    },
+    "toolrackTransform": {
+      "rotation": {
+        "y": 22.5,
+        "z": -1
+      },
+      "translation": {
+        "x": -0.0,
+        "y": 0.047,
+        "z": -0.3
+      },
+      "scale": 1.25
+    },
+    "onDisplayTransform": {
+      "translation": {
+        "x": -0.005,
+        "y": -0.439,
+        "z": 0.055
+      },
+      "rotation": {
+        "x": 0,
+        "y": -90,
+        "z": 1.5
+      },
+      "origin": {
+        "x": 0.5,
+        "y": 0.396,
+        "z": 0.5
+      },
+      "scale": 0.7
+    },
+    "rackable": true
+  },
+  "variantgroups": [
+    {
+      "code": "metal",
+      "states": [
+        "copper",
+        "tinbronze",
+        "bismuth",
+        "bismuthbronze",
+        "blackbronze",
+        "gold",
+        "silver",
+        "iron",
+        "meteoriciron",
+        "brass",
+        "steel"
+      ]
+    },
+    {
+      "code": "glass",
+      "states": [
+        "quartz",
+        "green",
+        "blue",
+        "violet",
+        "red",
+        "yellow",
+        "brown",
+        "vintage",
+        "smoky",
+        "pink"
+      ]
+    }
+  ],
+  "shape": {
+    "base": "item/spyglass"
+  },
+  "behaviors": [
+    {
+      "name": "GroundStorable",
+      "properties": {
+        "layout": "Quadrants"
+      }
+    }
+  ],
+  "heldTpHitAnimation": "breaktool",
+  "texturesByType": {
+    "*": {
+      "glass": {
+        "base": "game:block/glass/{glass}"
+      },
+      "metal": {
+        "base": "game:block/metal/ingot/{metal}"
+      }
+    }
+  },
+  "tooltierbytype": {
+    "spyglass-copper-*": 2,
+    "spyglass-gold-*": 2,
+    "spyglass-silver-*": 2,
+    "spyglass-bismuth-*": 2,
+    "spyglass-bismuthbronze-*": 3,
+    "spyglass-tinbronze-*": 3,
+    "spyglass-blackbronze-*": 3,
+    "spyglass-iron-*": 4,
+    "spyglass-meteoriciron-*": 4,
+    "spyglass-steel-*": 5
+  },
+  "durabilitybytype": {
+    "spyglass-gold-*": 35,
+    "spyglass-brass-*": 130,
+    "spyglass-silver-*": 45,
+    "spyglass-copper-*": 125,
+    "spyglass-tinbronze-*": 200,
+    "spyglass-bismuth-*": 32,
+    "spyglass-bismuthbronze-*": 225,
+    "spyglass-blackbronze-*": 125,
+    "spyglass-iron-*": 450,
+    "spyglass-meteoriciron-*": 600,
+    "spyglass-steel-*": 1125
+  },
+  "creativeinventory": {
+    "general": [
+      "*"
+    ],
+    "items": [
+      "*"
+    ],
+    "tools": [
+      "*"
+    ]
+  },
+  "fpHandTransform": {
+    "translation": {
+      "x": 0.0468,
+      "y": -0.5,
+      "z": 0
+    },
+    "rotation": {
+      "x": -161,
+      "y": 20,
+      "z": 90
+    },
+    "scale": 2.5
+  },
+  "guiTransform": {
+    "rotate": false,
+    "translation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "rotation": {
+      "x": -77,
+      "y": 47,
+      "z": -151
+    },
+    "origin": {
+      "x": 0.5,
+      "y": 0.5,
+      "z": 0.55
+    },
+    "scale": 2.4
+  },
+  "groundTransform": {
+    "translation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "origin": {
+      "x": 0.5,
+      "y": 0.45,
+      "z": 0.5
+    },
+    "scale": 3.6
+  },
+  "tpHandTransform": {
+    "translation": {
+      "x": -0.4,
+      "y": -0.5,
+      "z": -0.64
+    },
+    "rotation": {
+      "x": 90,
+      "y": -174,
+      "z": 0
+    },
+    "scale": 0.8
+  }
+}

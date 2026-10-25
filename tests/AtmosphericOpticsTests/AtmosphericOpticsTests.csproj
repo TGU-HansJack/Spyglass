@@ -10,6 +10,7 @@
     <None Include="$(VINTAGE_STORY)/Lib/glfw3.dll" CopyToOutputDirectory="PreserveNewest" Link="glfw3.dll" />
     <Compile Include="../../spyglass/src/Client/AtmosphericOpticsModel.cs" Link="AtmosphericOpticsModel.cs" />
     <Compile Include="../../spyglass/src/Client/OpticsRenderState.cs" Link="OpticsRenderState.cs" />
+    <Compile Include="../../spyglass/src/Client/LensRainModel.cs" Link="LensRainModel.cs" />
     <None Include="../../spyglass/assets/spyglassfork/shaders/*" CopyToOutputDirectory="PreserveNewest" Link="shaders/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

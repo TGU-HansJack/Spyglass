@@ -4,6 +4,7 @@ using OpenTK.Graphics.OpenGL;
 using Vintagestory.API.Client;
 using Vintagestory.Client.NoObf;
 using Vintagestory.GameContent;
+using Vintagestory.API.Common;
 
 namespace spyglass.src.Client
 {
@@ -21,6 +22,9 @@ namespace spyglass.src.Client
         private bool sceneRenderedToPrimary;
         private long lastWeatherSample = long.MinValue;
         private float targetExtinction, extinction;
+        private float targetLensRain;
+        private readonly LensRainModel rain = new();
+        private string rainLens;
 
         public double RenderOrder => 0.5;
         public int RenderRange => 999;
@@ -74,6 +78,7 @@ namespace spyglass.src.Client
             if (lastWeatherSample != long.MinValue && now >= lastWeatherSample && now - lastWeatherSample < 250) return;
             lastWeatherSample = now;
             targetExtinction = 0;
+            targetLensRain = 0;
             weather ??= capi.ModLoader.GetModSystem<WeatherSystemClient>();
             if (weather == null || !weather.haveLevelFinalize || !weather.playerChunkLoaded) return;
             var data = weather.BlendedWeatherData;
@@ -92,12 +97,16 @@ namespace spyglass.src.Client
             float rainfall = Math.Max(0, climate.Rainfall - (float)Math.Max(0,
                 (capi.World.Player.Entity.Pos.Y - capi.World.SeaLevel - 5000) / 10000));
             targetExtinction = AtmosphericOpticsModel.Extinction(kind, rainfall, 1);
+            var entity = capi.World.Player.Entity;
+            var pos = entity.Pos;
+            int rainHeight = capi.World.BlockAccessor.GetRainMapHeightAt((int)Math.Floor(pos.X), (int)Math.Floor(pos.Z));
+            targetLensRain = AtmosphericOpticsModel.LensRainIntensity(kind, rainfall, pos.Y + entity.LocalEyePos.Y, rainHeight);
         }
 
         public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
         {
             // Also keep disabled/late callbacks independent of the graphics context.
-            if (disposed || failed || !SpyglassMod.config.enableAtmosphericOptics || !ClientManipulation.EnableEffect())
+            if (disposed || failed || (!SpyglassMod.config.enableAtmosphericOptics && !SpyglassMod.config.enableLensRain) || !ClientManipulation.EnableEffect())
             {
                 sceneRenderedToPrimary = false;
                 return;
@@ -132,12 +141,20 @@ namespace spyglass.src.Client
             bool sceneReady = sceneRenderedToPrimary;
             sceneRenderedToPrimary = false;
             float fade = AtmosphericOpticsModel.Unit(ClientManipulation.getPercentZoomed());
-            if (fade <= 0.001f || capi.World?.Player?.Entity == null) return;
+            if (capi.World?.Player?.Entity == null) return;
             var render = capi.Render;
-            if (render.ShaderUniforms.CameraUnderwater > 0) return;
+            if (render.ShaderUniforms.CameraUnderwater > 0) { rain.Clear(); return; }
             SampleWeather();
+            string lens = ClientManipulation.GetHeldSpyglassMaterial() + ":" + ClientManipulation.GetHeldLensGlass();
+            if (lens != rainLens) { rain.Clear(); rainLens = lens; }
+            float rainStrength = SpyglassMod.config.enableLensRain
+                ? AtmosphericOpticsModel.Strength(SpyglassMod.config.lensRainStrength) : 0;
+            if (rainStrength <= 0) rain.Clear();
+            else rain.Update(deltaTime, fade > .01f ? targetLensRain : 0);
+            if (fade <= 0.001f) return;
             extinction = AtmosphericOpticsModel.Approach(extinction, targetExtinction, deltaTime);
-            float coefficient = extinction * AtmosphericOpticsModel.Strength(SpyglassMod.config.weatherOpticsStrength);
+            float coefficient = SpyglassMod.config.enableAtmosphericOptics
+                ? extinction * AtmosphericOpticsModel.Strength(SpyglassMod.config.weatherOpticsStrength) : 0;
             var ambient = capi.Ambient;
             var sun = capi.World.Calendar.SunPositionNormalized;
             var uniforms = render.ShaderUniforms;
@@ -146,9 +163,9 @@ namespace spyglass.src.Client
             float sunX = (float)(view[0] * sun.X + view[4] * sun.Y + view[8] * sun.Z);
             float sunY = (float)(view[1] * sun.X + view[5] * sun.Y + view[9] * sun.Z);
             float sunZ = (float)(view[2] * sun.X + view[6] * sun.Y + view[10] * sun.Z);
-            float glare = sunZ < 0 ? AtmosphericOpticsModel.Glare(sun.Y, uniforms.SunSpecularIntensity,
+            float glare = SpyglassMod.config.enableAtmosphericOptics && sunZ < 0 ? AtmosphericOpticsModel.Glare(sun.Y, uniforms.SunSpecularIntensity,
                 ambient.BlendedCloudDensity, ambient.BlendedFogDensity, SpyglassMod.config.sunGlareStrength) : 0;
-            if (coefficient <= 0.000001f && glare <= 0.0001f) return;
+            if (coefficient <= 0.000001f && glare <= 0.0001f && !rain.HasWater) return;
             var buffers = render.FrameBuffers;
             var primary = buffers != null && buffers.Count > (int)EnumFrameBuffer.Primary ? buffers[(int)EnumFrameBuffer.Primary] : null;
             if (!sceneReady || primary == null || primary.Disposed || primary.DepthTextureId <= 0
@@ -175,10 +192,10 @@ namespace spyglass.src.Client
             // Resource uploads can also change bindings on the first frame/reload.
             using var state = new OpticsRenderState();
             if (!EnsureResources()) return;
-            Draw(primary, fade, coefficient, glare, sunX, sunY, sunZ, sun.Y);
+            Draw(primary, fade, coefficient, glare, sunX, sunY, sunZ, sun.Y, rainStrength);
         }
 
-        private void Draw(FrameBufferRef primary, float fade, float coefficient, float glare, float sunX, float sunY, float sunZ, float sunElevation)
+        private void Draw(FrameBufferRef primary, float fade, float coefficient, float glare, float sunX, float sunY, float sunZ, float sunElevation, float rainStrength)
         {
             var render = capi.Render;
             var config = SpyglassMod.config;
@@ -206,6 +223,15 @@ namespace spyglass.src.Client
                     (float)(aperture.Width / viewport[2]), (float)(aperture.Height / viewport[3]));
                 shader.Uniform("frameSize", (float)viewport[2], (float)viewport[3]);
                 shader.Uniform("fade", fade);
+                shader.Uniform("lensRainStrength", rainStrength);
+                shader.Uniform("lensLight", ClientManipulation.GetLensLightLevel());
+                shader.Uniform("rainDropCount", rain.Drops.Count);
+                shader.Uniform("rainTrailCount", rain.Trails.Count);
+                shader.Uniforms4("rainDrops", LensRainModel.MaxDrops, rain.DropUniforms);
+                shader.Uniforms4("rainTrails", LensRainModel.MaxTrails, rain.TrailUniforms);
+                shader.Uniform("rainPool", rain.Pool);
+                float rimInset = config.GetVinetteStyle() == VignetteStyle.none ? 0 : (float)(SpyglassOverlay.MetalWidth * 1.1 / aperture.Width);
+                shader.Uniform("rainInset", Math.Min(.45f, rimInset), Math.Min(.45f, rimInset));
                 shader.Uniform("extinction", coefficient);
                 shader.Uniform("dayWeight", AtmosphericOpticsModel.DayWeight(sunElevation));
                 shader.Uniform("glareStrength", glare);

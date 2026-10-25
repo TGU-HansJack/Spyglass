@@ -1,0 +1,34 @@
+{
+  "ingredientPattern": "T,G,T",
+  "ingredients": {
+    "T": {
+      "type": "item",
+      "code": "spytube-*",
+      "name": "metal"
+    },
+    "G": {
+      "type": "block",
+      "code": "game:glass-*",
+      "name": "glass",
+      "allowedVariants": [
+        "quartz",
+        "green",
+        "blue",
+        "violet",
+        "red",
+        "yellow",
+        "brown",
+        "vintage",
+        "smoky",
+        "pink"
+      ]
+    }
+  },
+  "width": 1,
+  "height": 3,
+  "output": {
+    "type": "item",
+    "code": "spyglass-{metal}-{glass}",
+    "quantity": 1
+  }
+}

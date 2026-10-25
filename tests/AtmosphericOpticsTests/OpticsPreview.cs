@@ -72,6 +72,29 @@ internal static class OpticsPreview
             stream.Write(System.Text.Encoding.ASCII.GetBytes($"P6\n{side} {side}\n255\n"));
             for (int y = side - 1; y >= 0; y--) stream.Write(pixels, y * side * 3, side * 3);
         }
+        // Water preview uses the production simulation and shader. Render a
+        // steady rainfall followed by sheltered runoff, without new rainfall.
+        var water = new LensRainModel();
+        F("extinction", 0); F("glareStrength", 0);
+        F("lensRainStrength", 1); F("lensLight", 1);
+        float inset = 23.76f / side;
+        GL.Uniform2(U("rainInset"), inset, inset);
+        for (int tick = 0; tick < 600; tick++) water.Update(1f / 60, 1);
+        for (int frame = 0; frame < 90; frame++)
+        {
+            for (int tick = 0; tick < 6; tick++) water.Update(1f / 60, frame < 45 ? 1 : 0);
+            GL.Uniform1(U("rainDropCount"), water.Drops.Count);
+            GL.Uniform1(U("rainTrailCount"), water.Trails.Count);
+            GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, water.DropUniforms);
+            GL.Uniform4(U("rainTrails"), LensRainModel.MaxTrails, water.TrailUniforms);
+            F("rainPool", water.Pool);
+            GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
+            var pixels = new byte[side * side * 3];
+            GL.ReadPixels(origin, origin, side, side, PixelFormat.Rgb, PixelType.UnsignedByte, pixels);
+            using var stream = File.Create(Path.Combine(directory, $"water-{frame:D3}.ppm"));
+            stream.Write(System.Text.Encoding.ASCII.GetBytes($"P6\n{side} {side}\n255\n"));
+            for (int y = side - 1; y >= 0; y--) stream.Write(pixels, y * side * 3, side * 3);
+        }
         if (GL.GetError() != ErrorCode.NoError) throw new InvalidOperationException("Preview OpenGL error.");
         GL.DeleteFramebuffer(framebuffer);
         GL.DeleteTexture(scene); GL.DeleteTexture(depth); GL.DeleteTexture(output);

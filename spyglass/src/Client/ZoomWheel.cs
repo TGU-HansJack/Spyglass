@@ -10,14 +10,62 @@ using Vintagestory.Client.NoObf;
 
 namespace spyglass.src.Client
 {
-    class ZoomWheel : GameWheel
+    class ZoomWheel : GameWheel, IRenderer
     {
+		private bool disposed;
+		public double RenderOrder => 1.1;
+		public int RenderRange => 999;
 		private double lastAppearanceCheck;
 		private float lastLensLight = 1f;
 		private string lastLensMaterial;
+		private string lastLensGlass;
 
         public ZoomWheel(ICoreClientAPI capi) : base(capi)
 		{
+			// F4 skips the entire Ortho stage, so a HUD visibility override alone
+			// cannot retain the physical lens. Done runs even with the HUD hidden.
+			capi.Event.RegisterRenderer(this, EnumRenderStage.Done, SpyglassMod.ModId + "-lens");
+		}
+
+		public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
+		{
+			if (disposed || stage != EnumRenderStage.Done || !capi.HideGuis || !IsEnabled()) return;
+			RenderWithoutHud(deltaTime);
+		}
+
+		private void RenderWithoutHud(float deltaTime)
+		{
+			var render = capi.Render;
+			if (render.FrameWidth <= 0 || render.FrameHeight <= 0) return;
+			using var state = new OpticsRenderState();
+			var previousShader = render.CurrentActiveShader;
+			if (capi.World is not ClientMain game) return;
+			var previousGui = game.guiShaderProg;
+			previousShader?.Stop();
+			game.guiShaderProg = ShaderPrograms.Gui;
+			render.OrthoMode(render.FrameWidth, render.FrameHeight);
+			try
+			{
+				render.GlToggleBlend(true);
+				OpenTK.Graphics.OpenGL.GL.Disable(OpenTK.Graphics.OpenGL.EnableCap.DepthTest);
+				game.guiShaderProg.Use();
+				OnRenderGUI(deltaTime);
+			}
+			finally
+			{
+				game.guiShaderProg.Stop();
+				game.guiShaderProg = previousGui;
+				render.PerspectiveMode();
+				previousShader?.Use();
+			}
+		}
+
+		public override void Dispose()
+		{
+			if (disposed) return;
+			disposed = true;
+			capi.Event.UnregisterRenderer(this, EnumRenderStage.Done);
+			base.Dispose();
 		}
 
 		public override bool IsEnabled()
@@ -32,10 +80,12 @@ namespace spyglass.src.Client
 				lastAppearanceCheck = SpyglassMod.gameRuntime;
 				float currentLight = ClientManipulation.GetLensLightLevel();
 				string currentMaterial = ClientManipulation.GetHeldSpyglassMaterial();
-				if (Math.Abs(currentLight - lastLensLight) > 0.025f || currentMaterial != lastLensMaterial)
+				string currentGlass = ClientManipulation.GetHeldLensGlass();
+				if (Math.Abs(currentLight - lastLensLight) > 0.025f || currentMaterial != lastLensMaterial || currentGlass != lastLensGlass)
 				{
 					lastLensLight = currentLight;
 					lastLensMaterial = currentMaterial;
+					lastLensGlass = currentGlass;
 					RequestRecompose();
 				}
 			}
@@ -49,7 +99,9 @@ namespace spyglass.src.Client
 
 			// The outer eye-cup must be opaque. Applying edgeOpacity here would make
 			// the whole element translucent, including the area outside the lens.
-			SingleComposer.Color.W = Math.Max(0f, Math.Min(1f, percent));
+			// Zoom amount is capped at the selected ratio (normally 0.97),
+			// so using it as opacity would leave metal transparent at rest.
+			SingleComposer.Color.W = Math.Clamp(percent / SpyglassMod.getZoomRatio(), 0f, 1f);
 		}
 
 		public override GuiComposer adjustCompose(GuiComposer composer)
@@ -59,7 +111,7 @@ namespace spyglass.src.Client
 			if (style == VignetteStyle.none)
 				return composer;
 
-            return composer.AddInteractiveElement(new SpyglassOverlay(capi, ElementBounds.Fill, SpyglassMod.config.edgeSize, SpyglassMod.config.lensSize, SpyglassMod.config.glassColor, SpyglassMod.config.glassBrightness, SpyglassMod.config.edgeOpacity, style, ClientManipulation.GetHeldSpyglassMaterial(), ClientManipulation.GetLensLightLevel()));
+            return composer.AddInteractiveElement(new SpyglassOverlay(capi, ElementBounds.Fill, SpyglassMod.config.edgeSize, SpyglassMod.config.lensSize, SpyglassMod.config.glassColor, SpyglassMod.config.glassBrightness, SpyglassMod.config.edgeOpacity, style, ClientManipulation.GetHeldSpyglassMaterial(), ClientManipulation.GetLensLightLevel(), ClientManipulation.GetHeldLensGlass()));
 		}
 
 		public override void OnMouseWheel(MouseWheelEventArgs args)

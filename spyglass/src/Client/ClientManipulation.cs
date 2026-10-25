@@ -131,8 +131,16 @@ namespace spyglass.src
             if (string.IsNullOrEmpty(path) || !path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 return "copper";
 
-            string material = path.Substring(prefix.Length);
-            return string.IsNullOrEmpty(material) ? "copper" : material.ToLowerInvariant();
+            return LensGlass.MetalFromCode(path);
+        }
+
+        internal static string GetHeldLensGlass()
+        {
+            var manager = capi?.World?.Player?.InventoryManager;
+            var inventory = manager?.GetHotbarInventory();
+            int index = manager?.ActiveHotbarSlotNumber ?? -1;
+            return LensGlass.FromCode(inventory != null && index >= 0 && index < inventory.Count()
+                ? inventory[index]?.Itemstack?.Item?.Code?.Path : null);
         }
 
         internal static float GetLensLightLevel()

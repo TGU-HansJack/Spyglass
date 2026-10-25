@@ -17,7 +17,7 @@ AssemblyLoadContext.Default.Resolving += (_, name) => {
     }
     return null;
 };
-return Regression.Run(args);
+return args.Length > 2 && args[2] == "--lens-preview" ? LensOverlayTests.Run(args) : Regression.Run(args);
 
 static class Regression
 {
@@ -97,6 +97,13 @@ static class Regression
             inventory[0].Itemstack!.Item.Code = new AssetLocation("spyglass", "spyglass-copper");
             Check(!(bool)Call(logic, "AttemptingToZoom")!, "upstream namespace does not activate fork");
             inventory[0].Itemstack!.Item.Code = new AssetLocation("spyglassfork", "spyglass-copper");
+            Check((string)Call(logic, "GetHeldLensGlass")! == "plain", "existing spyglass defaults to plain glass");
+            inventory[0].Itemstack!.Item.Code = new AssetLocation("spyglassfork", "spyglass-tinbronze-blue");
+            Check((string)Call(logic, "GetHeldSpyglassMaterial")! == "tinbronze"
+                && (string)Call(logic, "GetHeldLensGlass")! == "blue", "colored lens keeps metal and glass identities separate");
+            Set(modType, "zoomed", true);
+            Check((bool)Call(logic, "AttemptingToZoom")!, "colored spyglass activates the original zoom path");
+            inventory[0].Itemstack!.Item.Code = new AssetLocation("spyglassfork", "spyglass-copper");
 
             var states = new Harmony("spyglassfork-regression-state");
             try {
@@ -144,6 +151,27 @@ static class Regression
                 Config("hideHUDWhileSpying", true);
                 Check((bool)Call(hudPatch, "HideGui", ordinaryHud)!, "ordinary HUD hides during zoom");
                 Check(!(bool)Call(hudPatch, "HideGui", wheel)!, "overlay never hides itself");
+                bool hudHidden = false;
+                var wheelApi = Proxy.Make<ICoreClientAPI>((m, _) => m.Name == "get_HideGuis" ? hudHidden : Proxy.Default(m.ReturnType));
+                AccessTools.Field(typeof(GuiDialog), "capi").SetValue(wheel, wheelApi);
+                states.Patch(AccessTools.Method(wheelType, "RenderWithoutHud"), prefix: new HarmonyMethod(typeof(ZoomState), nameof(ZoomState.CaptureLensRender)));
+                var lensRenderer = (IRenderer)wheel;
+                ZoomState.LensRenders = 0;
+                lensRenderer.OnRenderFrame(.016f, EnumRenderStage.Done);
+                Check(ZoomState.LensRenders == 0, "normal HUD does not draw the lens twice");
+                hudHidden = true;
+                lensRenderer.OnRenderFrame(.016f, EnumRenderStage.Ortho);
+                lensRenderer.OnRenderFrame(.016f, EnumRenderStage.Done);
+                Check(ZoomState.LensRenders == 1, "F4 routes the zoomed lens through Done while Ortho is skipped");
+                ZoomState.Value = 0;
+                lensRenderer.OnRenderFrame(.016f, EnumRenderStage.Done);
+                Check(ZoomState.LensRenders == 1, "F4 does not retain a mask after zoom ends");
+                ZoomState.Value = 1;
+                Config("enableZoomInThirdPerson", false);
+                Set(logic, "realCameraMode", EnumCameraMode.ThirdPerson);
+                lensRenderer.OnRenderFrame(.016f, EnumRenderStage.Done);
+                Check(ZoomState.LensRenders == 1, "F4 respects disabled third-person zoom");
+                Config("enableZoomInThirdPerson", true);
                 wheelType.GetMethod("RequestRecompose")!.Invoke(wheel, null);
                 Check((bool)AccessTools.Field(wheelType.BaseType, "recomposeRequested").GetValue(wheel)!, "synchronized overlay rebuild is requested");
 
@@ -198,11 +226,15 @@ static class Regression
             var legacyConfig = Newtonsoft.Json.JsonConvert.DeserializeObject("{\"vignetteStyle\":\"square\",\"lensSize\":0.5}", configType)!;
             Check((bool)AccessTools.Field(configType, "enableAtmosphericOptics").GetValue(legacyConfig)!
                 && (float)AccessTools.Field(configType, "weatherOpticsStrength").GetValue(legacyConfig)! == 1
-                && (float)AccessTools.Field(configType, "sunGlareStrength").GetValue(legacyConfig)! == 1,
-                "legacy config retains atmospheric defaults");
+                && (float)AccessTools.Field(configType, "sunGlareStrength").GetValue(legacyConfig)! == 1
+                && (bool)AccessTools.Field(configType, "enableLensRain").GetValue(legacyConfig)!
+                && (float)AccessTools.Field(configType, "lensRainStrength").GetValue(legacyConfig)! == 1,
+                "legacy config retains atmospheric and lens rain defaults");
             Config("enableAtmosphericOptics", false);
             Config("weatherOpticsStrength", .4f);
             Config("sunGlareStrength", 1.6f);
+            Config("enableLensRain", false);
+            Config("lensRainStrength", 1.2f);
             var packetType = T("Network.ServerConfigSyncPacket");
             var packet = Activator.CreateInstance(packetType)!;
             AccessTools.Field(packetType, "vignetteStyle").SetValue(packet, Enum.Parse(T("VignetteStyle"), "none"));
@@ -214,9 +246,12 @@ static class Regression
                 && (float)AccessTools.Field(configType, "lensSize").GetValue(config)! == .8f, "real server handler still applies aperture settings");
             Check(!(bool)AccessTools.Field(configType, "enableAtmosphericOptics").GetValue(config)!
                 && (float)AccessTools.Field(configType, "weatherOpticsStrength").GetValue(config)! == .4f
-                && (float)AccessTools.Field(configType, "sunGlareStrength").GetValue(config)! == 1.6f,
+                && (float)AccessTools.Field(configType, "sunGlareStrength").GetValue(config)! == 1.6f
+                && !(bool)AccessTools.Field(configType, "enableLensRain").GetValue(config)!
+                && (float)AccessTools.Field(configType, "lensRainStrength").GetValue(config)! == 1.2f,
                 "server aperture synchronization preserves client optics preferences");
-            Check(packetType.GetFields().All(f => f.Name != "enableAtmosphericOptics" && f.Name != "weatherOpticsStrength" && f.Name != "sunGlareStrength"),
+            Check(packetType.GetFields().All(f => f.Name != "enableAtmosphericOptics" && f.Name != "weatherOpticsStrength" && f.Name != "sunGlareStrength"
+                && f.Name != "enableLensRain" && f.Name != "lensRainStrength"),
                 "atmospheric preferences excluded from network packet");
 
             var rendererType = T("Client.AtmosphericOpticsRenderer");
@@ -231,7 +266,12 @@ static class Regression
                 if (m.Name == "remove_ReloadShader") { if (Equals(reload, values![0])) reloadRemoves++; }
                 return Proxy.Default(m.ReturnType);
             });
+            var fragmentShader = Proxy.Make<IShader>((m, _) => m.Name == "get_Code" ? "/* VANILLA_RAIN_FUNCTIONS */" : Proxy.Default(m.ReturnType));
+            var vanillaAsset = Proxy.Make<IAsset>((m, _) => m.Name == "ToText"
+                ? File.ReadAllText(Path.Combine(args[0], "assets/game/shaders/chunkliquid.fsh")) : Proxy.Default(m.ReturnType));
+            var assets = Proxy.Make<IAssetManager>((m, _) => m.Name == "TryGet" ? vanillaAsset : Proxy.Default(m.ReturnType));
             var failedShader = Proxy.Make<IShaderProgram>((m, _) => {
+                if (m.Name == "get_FragmentShader") return fragmentShader;
                 if (m.Name == "Compile") { compiles++; return false; }
                 if (m.Name == "Dispose") disposes++;
                 return Proxy.Default(m.ReturnType);
@@ -239,7 +279,7 @@ static class Regression
             var shaders = Proxy.Make<IShaderAPI>((m, _) => m.Name == "NewShaderProgram" ? failedShader : Proxy.Default(m.ReturnType));
             logger = Proxy.Make<ILogger>((m, _) => { if (m.Name == "Warning") warnings++; return Proxy.Default(m.ReturnType); });
             api = Proxy.Make<ICoreClientAPI>((m, _) => m.Name switch {
-                "get_Event" => events, "get_Shader" => shaders, "get_Logger" => logger, _ => Proxy.Default(m.ReturnType)
+                "get_Event" => events, "get_Shader" => shaders, "get_Logger" => logger, "get_Assets" => assets, _ => Proxy.Default(m.ReturnType)
             });
             var renderer = (IRenderer)Activator.CreateInstance(rendererType, BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] {api}, null)!;
             Check(registered.SequenceEqual(new[] {EnumRenderStage.AfterOIT, EnumRenderStage.AfterBlit}) && reloadAdds == 1,
@@ -257,6 +297,7 @@ static class Regression
                 && reloadRemoves == 1 && disposes == 2, "atmosphere dispose unregisters all callbacks exactly once");
             renderer.OnRenderFrame(.016f, EnumRenderStage.AfterBlit);
             Check(compiles == 2 && warnings == 2, "late render after dispose is safe");
+            assertions += LensRecipeTests.Run();
             Console.WriteLine("SUCCESS " + assertions + " assertions");
             return 0;
         } finally { harmony.UnpatchAll(harmony.Id); }
@@ -277,6 +318,8 @@ public class Proxy : DispatchProxy
 
 public static class ZoomState
 {
+    public static int LensRenders;
+    public static bool CaptureLensRender() { LensRenders++; return false; }
     public static float Value = 1;
     public static IPlayerInventoryManager? Manager;
     public static bool Inventory(ref IPlayerInventoryManager __result) { __result = Manager!; return false; }

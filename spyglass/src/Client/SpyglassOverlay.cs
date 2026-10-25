@@ -1,21 +1,22 @@
-﻿using Vintagestory.API.Client;
+using Vintagestory.API.Client;
+using Vintagestory.API.Common;
 using Cairo;
 using System;
+using System.Runtime.InteropServices;
 
 namespace spyglass.src.Client
 {
-    internal class SpyglassOverlay : GuiElement // basically GuiElementInset, with a customizeable background color.
+    internal class SpyglassOverlay : GuiElement
     {
         private readonly int edgeSize;
-        private readonly float lensSize;
-        private readonly float glassBrightness;
-        private readonly float glassColor;
+        private readonly float lensSize, glassBrightness, glassColor, lightLevel;
         private readonly VignetteStyle style;
         private readonly string material;
-        private readonly float lightLevel;
-        private readonly float edgeOpacity;
+        private readonly string lensGlass;
 
-        public SpyglassOverlay(ICoreClientAPI capi, ElementBounds bounds, int edgeSize, float lensSize, float glassColor, float glassBrightness, float edgeOpacity, VignetteStyle style, string material, float lightLevel) : base(capi, bounds)
+        internal const double MetalWidth = 7.2 * 3;
+
+        public SpyglassOverlay(ICoreClientAPI capi, ElementBounds bounds, int edgeSize, float lensSize, float glassColor, float glassBrightness, float edgeOpacity, VignetteStyle style, string material, float lightLevel, string lensGlass = "plain") : base(capi, bounds)
         {
             this.edgeSize = edgeSize;
             this.lensSize = float.IsFinite(lensSize) ? Math.Clamp(lensSize, 0.05f, 1f) : 0.5f;
@@ -23,75 +24,88 @@ namespace spyglass.src.Client
             this.glassBrightness = glassBrightness;
             this.style = style;
             this.material = material;
-            this.lightLevel = Math.Max(0.2f, Math.Min(1.15f, lightLevel));
-            this.edgeOpacity = Math.Max(0f, Math.Min(1f, edgeOpacity));
+            this.lightLevel = Math.Clamp(lightLevel, 0.2f, 1f);
+            this.lensGlass = lensGlass;
         }
 
         public override void ComposeElements(Context ctx, ImageSurface surface)
         {
             Bounds.CalcWorldBounds();
+            if (style != VignetteStyle.square) return;
+            var aperture = LensAperture.Square(Bounds.drawX, Bounds.drawY, Bounds.OuterWidth, Bounds.OuterHeight, edgeSize, lensSize);
+            double x = aperture.X, y = aperture.Y, size = aperture.Width;
+            if (size <= 0) return;
 
+            ctx.Save();
+            ctx.SetSourceRGBA(0, 0, 0, 1);
+            ctx.NewPath();
+            ctx.Rectangle(Bounds.drawX, Bounds.drawY, Bounds.OuterWidth, Bounds.OuterHeight);
+            ctx.Rectangle(x, y, size, size);
+            ctx.FillRule = FillRule.EvenOdd;
+            ctx.Fill();
+            ctx.Restore();
+
+            ctx.Save();
+            ctx.Rectangle(x, y, size, size);
+            ctx.Clip();
             if (glassBrightness < 1)
             {
                 ctx.SetSourceRGBA(glassColor, glassColor, glassColor, 1 - glassBrightness);
-                Rectangle(ctx, Bounds);
-                ctx.Fill();
+                ctx.Paint();
             }
+            DrawVanillaGlass(ctx, x, y, size);
+            ctx.Restore();
+            DrawMaterialContour(ctx, x, y, size);
+        }
 
-            switch (style)
-            {
-                case VignetteStyle.square:
-                    {
-                        var aperture = LensAperture.Square(Bounds.drawX, Bounds.drawY, Bounds.OuterWidth, Bounds.OuterHeight, edgeSize, lensSize);
-                        double size = aperture.Width;
-                        double x = aperture.X;
-                        double y = aperture.Y;
-
-                        // Even-odd fill cuts the square aperture out of the dark mask.
-                        ctx.SetSourceRGBA(0.0, 0.0, 0.0, 1.0);
-                        ctx.NewPath();
-                        ctx.Rectangle(Bounds.drawX, Bounds.drawY, Bounds.OuterWidth, Bounds.OuterHeight);
-                        ctx.Rectangle(x, y, size, size);
-                        ctx.FillRule = FillRule.EvenOdd;
-                        ctx.Fill();
-
-                        DrawMaterialContour(ctx, x, y, size);
-                        break;
-                    }
-            }
+        private void DrawVanillaGlass(Context ctx, double x, double y, double size)
+        {
+            // Preserve the original glass artwork, tint and alpha. A single tile
+            // spans the lens, just as one texture spans an original glass block.
+            using var glass = getImageSurfaceFromAsset(api, LensGlass.Texture(lensGlass));
+            // The engine decoder supplies straight-alpha BGRA, while Cairo
+            // expects premultiplied channels. Without this, colored glass shifts
+            // hue and bright quartz pixels overflow into mosaic-like artifacts.
+            glass.Flush();
+            var pixels = new byte[glass.Stride * glass.Height];
+            Marshal.Copy(glass.DataPtr, pixels, 0, pixels.Length);
+            for (int i = 0; i < pixels.Length; i += 4)
+                for (int channel = 0; channel < 3; channel++)
+                    pixels[i + channel] = (byte)((pixels[i + channel] * pixels[i + 3] + 127) / 255);
+            Marshal.Copy(pixels, 0, glass.DataPtr, pixels.Length);
+            glass.MarkDirty();
+            using var pattern = new SurfacePattern(glass) { Filter = Filter.Nearest, Extend = Extend.Pad };
+            pattern.Matrix = new Matrix(glass.Width / size, 0, 0, glass.Height / size, -x * glass.Width / size, -y * glass.Height / size);
+            ctx.SetSource(pattern);
+            ctx.Paint();
         }
 
         private void DrawMaterialContour(Context ctx, double x, double y, double size)
         {
-            GetMaterialColor(material, out double red, out double green, out double blue);
-            double light = lightLevel;
-            // Twice the previous default metal width (20 * 0.18), independent
-            // of the aperture margin so reducing that margin keeps the rim thick.
-            const double width = 7.2;
-
-            // Three nested strokes form a bevelled metal outline instead of a flat
-            // gradient: dark underside, material body, then a narrow lit edge.
-            ctx.LineWidth = width * 2.2;
-            ctx.SetSourceRGBA(red * 0.28, green * 0.28, blue * 0.28, edgeOpacity);
+            ctx.Save();
+            // Physical metal is always opaque, even with an old edgeOpacity
+            // setting. Pixel edges avoid a translucent antialiased fringe.
+            ctx.Antialias = Antialias.None;
+            ctx.LineWidth = MetalWidth * 2.2;
+            ctx.SetSourceRGBA(0.055, 0.05, 0.045, 1);
             StrokeRectangle(ctx, x, y, size);
 
-            using (var materialGradient = new LinearGradient(x, y, x + size, y + size))
-            {
-                materialGradient.AddColorStop(0.0, new Color(Math.Min(1, red * (0.75 + light * 0.25)), Math.Min(1, green * (0.75 + light * 0.25)), Math.Min(1, blue * (0.75 + light * 0.25)), edgeOpacity));
-                materialGradient.AddColorStop(0.48, new Color(red, green, blue, edgeOpacity));
-                materialGradient.AddColorStop(1.0, new Color(red * 0.35, green * 0.35, blue * 0.35, edgeOpacity));
-                ctx.LineWidth = width;
-                ctx.SetSource(materialGradient);
-                StrokeRectangle(ctx, x, y, size);
-            }
+            var texture = new AssetLocation("game", "textures/block/metal/ingot/" + material + ".png");
+            if (api.Assets.TryGet(texture) == null)
+                texture = new AssetLocation("game", "textures/block/metal/ingot/copper.png");
+            using var metalSurface = getImageSurfaceFromAsset(api, texture);
+            using var metalPattern = new SurfacePattern(metalSurface) { Extend = Extend.Repeat, Filter = Filter.Nearest };
+            metalPattern.Matrix = new Matrix(1.0 / 3, 0, 0, 1.0 / 3, -x / 3, -y / 3);
+            ctx.LineWidth = MetalWidth;
+            ctx.SetSource(metalPattern);
+            StrokeRectangle(ctx, x, y, size);
 
-            ctx.LineWidth = Math.Max(2.0, width * 0.22);
-            ctx.SetSourceRGBA(Math.Min(1, red + 0.34 * light), Math.Min(1, green + 0.34 * light), Math.Min(1, blue + 0.34 * light), edgeOpacity * 0.9);
-            ctx.MoveTo(x + width * 0.5, y + width * 0.5);
-            ctx.LineTo(x + size - width * 0.5, y + width * 0.5);
-            ctx.MoveTo(x + width * 0.5, y + width * 0.5);
-            ctx.LineTo(x + width * 0.5, y + size - width * 0.5);
-            ctx.Stroke();
+            ctx.SetSourceRGBA(0, 0, 0, 1 - lightLevel * 0.82);
+            StrokeRectangle(ctx, x, y, size);
+            ctx.LineWidth = MetalWidth * 0.16;
+            ctx.SetSourceRGBA(0, 0, 0, 0.18);
+            StrokeRectangle(ctx, x - MetalWidth * 0.43, y - MetalWidth * 0.43, size + MetalWidth * 0.86);
+            ctx.Restore();
         }
 
         private static void StrokeRectangle(Context ctx, double x, double y, double size)
@@ -99,24 +113,6 @@ namespace spyglass.src.Client
             ctx.NewPath();
             ctx.Rectangle(x, y, size, size);
             ctx.Stroke();
-        }
-
-        private static void GetMaterialColor(string material, out double red, out double green, out double blue)
-        {
-            red = 0.62; green = 0.30; blue = 0.11;
-            switch (material)
-            {
-                case "tinbronze": red = 0.60; green = 0.46; blue = 0.25; break;
-                case "bismuth": red = 0.42; green = 0.48; blue = 0.54; break;
-                case "bismuthbronze": red = 0.48; green = 0.31; blue = 0.17; break;
-                case "blackbronze": red = 0.24; green = 0.19; blue = 0.15; break;
-                case "gold": red = 0.76; green = 0.54; blue = 0.14; break;
-                case "silver": red = 0.62; green = 0.67; blue = 0.72; break;
-                case "iron": red = 0.30; green = 0.32; blue = 0.34; break;
-                case "meteoriciron": red = 0.18; green = 0.21; blue = 0.25; break;
-                case "brass": red = 0.68; green = 0.49; blue = 0.17; break;
-                case "steel": red = 0.40; green = 0.47; blue = 0.54; break;
-            }
         }
     }
 }
