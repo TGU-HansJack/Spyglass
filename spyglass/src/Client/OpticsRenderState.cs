@@ -14,11 +14,11 @@ namespace spyglass.src.Client
         private readonly int blendSrcRgb = GL.GetInteger(GetPName.BlendSrcRgb), blendDstRgb = GL.GetInteger(GetPName.BlendDstRgb);
         private readonly int blendSrcAlpha = GL.GetInteger(GetPName.BlendSrcAlpha), blendDstAlpha = GL.GetInteger(GetPName.BlendDstAlpha);
         private readonly int activeTexture = GL.GetInteger(GetPName.ActiveTexture);
-        private readonly int[] textures = new int[2], samplers = new int[2];
+        private readonly int[] textures = new int[3], samplers = new int[3];
 
         internal OpticsRenderState()
         {
-            for (int i = 0; i < 2; i++)
+            for (int i = 0; i < textures.Length; i++)
             {
                 GL.ActiveTexture(TextureUnit.Texture0 + i);
                 textures[i] = GL.GetInteger(GetPName.TextureBinding2D);
@@ -38,7 +38,7 @@ namespace spyglass.src.Client
             GL.UseProgram(program);
             GL.BindVertexArray(vao);
             GL.BindBuffer(BufferTarget.ArrayBuffer, arrayBuffer);
-            for (int i = 0; i < 2; i++)
+            for (int i = 0; i < textures.Length; i++)
             {
                 GL.ActiveTexture(TextureUnit.Texture0 + i);
                 GL.BindTexture(TextureTarget.Texture2D, textures[i]);

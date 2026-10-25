@@ -23,7 +23,7 @@ namespace spyglass.src
         public float glassBrightness = 1.0f; // less then 1.0, will dim the view when using spyglass
         public float glassColor = 0.94f; // the brightness of the glass material, by default this is nearly white like quartz.
 
-        public bool enableLensRain = true; // persistent lens beads, merging, runoff and bottom accumulation
+        public bool enableLensRain = true; // stationary surface beads and frost growing from lens edges
         public float lensRainStrength = 1.0f; // 0..2; independent of atmospheric optics
 
         // Client preferences, intentionally excluded from the server vignette packet.

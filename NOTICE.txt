@@ -1,4 +1,4 @@
-Spyglass Fork 0.6.3
+Spyglass Fork 0.7.6
 Vintage Story 1.22.3-1.22.7
 
 Based on Spyglass 0.6.1 by Fuami.
@@ -13,3 +13,8 @@ are unchanged. The complete original license is included in LICENSE.
 Fork changes: third-person effect gating, synchronized vignette/HUD handling,
 optional Scribe HUD compatibility, player lifecycle guards and state cleanup,
 and independent spyglassfork identifiers, assets and configuration.
+
+The feathered frost opacity texture at assets/spyglassfork/textures/lens/frost.png
+is adapted from the reference image supplied by the user on 2026-10-26.
+Its original photographic colors/background are not included. This attribution
+does not alter the original Spyglass code copyright notice above.

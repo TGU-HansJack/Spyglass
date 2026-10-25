@@ -17,4 +17,4 @@ For production Cairo lens previews and 90 drawing assertions, put the game's Lib
 
 The main runner expands and resolves both production lens recipes with the game recipe API against a mock collectible registry. It checks 121 metal/glass combinations, ingredient rejection, original model texture paths and metal durability entries. Run from the repository root.
 
-The GPU optics runner performs 117 assertions after the frost update, including snow/cold frost spawning, warm fade-out, sparse frost rendering, droplet classes, runoff persistence and the droplet size cap.
+The GPU optics runner now checks stationary beads (all runoff/trail/pool behavior was removed), bounded contact merging, edge-anchored feathered frost, inward growth and transparency, plus restoration of the third texture unit. Its frost fixture is the exact decoded RGBA of the shipped frost.png. `prepare_frost.py <reference-image>` regenerates both files with Pillow; the original reference is not bundled.

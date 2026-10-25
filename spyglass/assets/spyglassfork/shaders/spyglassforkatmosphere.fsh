@@ -1,6 +1,7 @@
 #version 330 core
 uniform sampler2D sceneTexture;
 uniform sampler2D depthTexture;
+uniform sampler2D frostTexture;
 uniform mat4 inverseProjection;
 uniform vec4 aperture;
 uniform vec2 frameSize;
@@ -16,93 +17,46 @@ uniform vec2 sunScreen;
 uniform float lensRainStrength;
 uniform float lensLight;
 uniform int rainDropCount;
-uniform int rainBeadCount;
-uniform int rainTrailCount;
-uniform vec4 rainDrops[32];
-uniform vec4 rainBeads[32];
+uniform vec4 rainDrops[12];
+uniform vec4 rainDropShapes[12];
 uniform int frostCount;
 uniform vec4 frostCrystals[2];
-uniform vec4 rainTrails[192];
-uniform float rainPool;
+uniform vec4 frostDetails[2];
 uniform vec2 rainInset;
 uniform float flickProgress;
 in vec2 texCoord;
 layout(location = 0) out vec4 outColor;
 
-// Beads and irregular runoff beads, in lens coordinates with Y pointing down.
-float waterHeight(vec2 p)
+// Stationary, round surface beads. No runoff, trails or bottom water plane.
+float beadHeight(vec2 p)
 {
     float height = 0.0;
     for (int i = 0; i < rainDropCount; i++)
     {
-        vec4 drop = rainDrops[i];
-        vec2 q = (p - drop.xy) / max(drop.z, 0.001);
-        q.y /= max(drop.w, 0.8);
-        q.x /= clamp(1.0 + q.y * clamp(drop.w - 1.0, 0.0, 0.2) * 0.20, 0.65, 1.2);
-        float body = smoothstep(1.0, 0.38, dot(q, q));
-        height = max(height, body);
-    }
-    for (int i = 0; i < rainBeadCount; i++)
-    {
-        vec4 bead = rainBeads[i];
+        vec4 bead = rainDrops[i];
         vec2 q = (p - bead.xy) / max(bead.z, 0.001);
+        q.y /= rainDropShapes[i].x;
         float body = max(0.0, 1.0 - dot(q, q));
-        height = max(height, body * bead.w);
+        height = max(height, body * body * bead.w);
     }
-    for (int i = 0; i < rainTrailCount; i++)
-    {
-        vec4 path = rainTrails[i * 2];
-        vec4 shape = rainTrails[i * 2 + 1];
-        float span = max(path.w - path.z, 0.001);
-        float t = clamp((p.y - path.z) / span, 0.0, 1.0);
-        float routeX = mix(path.x, path.y, t);
-        float width = mix(shape.x, shape.y, t);
-        float across = max(0.0, 1.0 - abs(p.x - routeX) / max(width, 0.00055));
-        float along = smoothstep(path.z - .001, path.z + span * .22, p.y)
-            * (1.0 - smoothstep(path.w - span * .22, path.w + .001, p.y));
-        float fleck = max(0.0, across * max(along, 0.0)) * shape.z;
-        height = max(height, fleck);
-    }
-    if (rainPool > 0.0001)
-    {
-        float top = 1.0 - rainPool;
-        height = max(height, smoothstep(top - 0.0015, top + 0.0015, p.y) * 0.72);
-    }
-    return clamp(height, 0.0, 1.0);
+    return height;
 }
 
-float segmentCoverage(vec2 p, vec2 a, vec2 b, float radius)
+// The reference's blue background is absent from this alpha texture. Only
+// feathered ice detail is sampled; the world remains visible between crystals.
+vec2 frostTextureCoverage(vec2 p, vec4 crystal, vec4 detail)
 {
-    vec2 ab = b - a;
-    float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 0.00001), 0.0, 1.0);
-    return 1.0 - smoothstep(radius * 0.65, radius * 1.35, length(p - (a + ab * t)));
-}
-
-float frostCrystal(vec2 p, vec4 crystal)
-{
-    vec2 d = p - crystal.xy;
-    float pixel = max(crystal.z / 13.0, 0.0011);
-    d = floor(d / pixel + 0.5) * pixel;
-    float radius = crystal.z;
-    float lineWidth = pixel * 1.15;
-    float frost = 0.0;
-    for (int arm = 0; arm < 6; arm++)
-    {
-        float angle = float(arm) * 1.04719755;
-        vec2 axis = vec2(cos(angle), sin(angle));
-        vec2 tip = axis * radius;
-        frost = max(frost, segmentCoverage(d, vec2(0.0), tip, lineWidth));
-        for (int branch = 1; branch <= 2; branch++)
-        {
-            float along = radius * (branch == 1 ? 0.42 : 0.67);
-            vec2 root = axis * along;
-            float branchLength = radius * (branch == 1 ? 0.25 : 0.18);
-            vec2 normal = vec2(-axis.y, axis.x);
-            frost = max(frost, segmentCoverage(d, root, root + (axis + normal) * branchLength * 0.7071, lineWidth));
-            frost = max(frost, segmentCoverage(d, root, root + (axis - normal) * branchLength * 0.7071, lineWidth));
-        }
-    }
-    return frost * crystal.w;
+    vec2 delta = p - crystal.xy;
+    vec2 axis = vec2(cos(detail.x), sin(detail.x));
+    vec2 q = vec2(dot(delta, axis), dot(delta, vec2(-axis.y, axis.x))) / crystal.z;
+    vec2 uv = vec2(q.x, q.y + 0.5);
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec2(0.0);
+    if (detail.z > 0.5) uv.y = 1.0 - uv.y;
+    float ice = texture(frostTexture, uv).a;
+    float reveal = 1.0 - smoothstep(detail.y - 0.025, detail.y + 0.025, uv.x);
+    reveal *= smoothstep(-0.005, 0.015, detail.y);
+    float ridge = 1.0 - exp(-ice * 3.0);
+    return vec2(ridge, ice) * reveal * crystal.w;
 }
 
 float hueChannel(float lo, float hi, float h)
@@ -154,7 +108,7 @@ void main()
     vec4 scene = texture(sceneTexture, texCoord);
     vec2 lensPoint = ((texCoord - aperture.xy) / aperture.zw - rainInset) / max(vec2(0.01), 1.0 - 2.0 * rainInset);
     lensPoint.y = 1.0 - lensPoint.y;
-    float water = lensRainStrength > 0.0 ? waterHeight(lensPoint) : 0.0;
+    float water = lensRainStrength > 0.0 ? beadHeight(lensPoint) : 0.0;
     if (any(lessThan(lensPoint, vec2(0.0))) || any(greaterThan(lensPoint, vec2(1.0)))) water = 0.0;
     vec2 normal = vec2(dFdx(water), dFdy(water)) * aperture.zw * frameSize / 128.0;
     vec2 refractedUv = clamp(texCoord + normal * lensRainStrength * 0.012,
@@ -185,17 +139,19 @@ void main()
     {
         float edgeShade = clamp(length(normal) * 0.18, 0.0, 0.055);
         float highlight = clamp((-normal.x + normal.y) * 0.14, 0.0, 0.045) * clamp(lensLight, 0.0, 1.0);
-        float shadeStep = floor(clamp(highlight - edgeShade - water * 0.09, -0.12, 0.045) * 16.0 + 0.5) / 16.0;
-        color *= 1.0 + shadeStep * lensRainStrength;
+        color *= 1.0 + (highlight - edgeShade - water * 0.055) * lensRainStrength;
     }
-    float frost = 0.0;
-    for (int i = 0; i < frostCount; i++) frost = max(frost, frostCrystal(lensPoint, frostCrystals[i]));
-    color = mix(color, vec3(0.80, 0.88, 0.93), frost * 0.42);
+    vec2 frost = vec2(0.0);
+    for (int i = 0; i < frostCount; i++)
+        frost = max(frost, frostTextureCoverage(lensPoint, frostCrystals[i], frostDetails[i]));
+    if (any(lessThan(lensPoint, vec2(0.0))) || any(greaterThan(lensPoint, vec2(1.0)))) frost = vec2(0.0);
+    // Transparent facets with a crisp, brighter crystalline rim.
+    color = mix(color, vec3(0.72, 0.85, 0.91), frost.y * 0.24);
+    color = mix(color, vec3(0.91, 0.97, 1.0), frost.x * 0.60);
     if (flickProgress < 1.0)
     {
-        // lensPoint.y is inverted above: 0,1 is top-left and 1,0 is
-        // bottom-right, so both coordinates advance during the diagonal wipe.
-        float sweep = (lensPoint.x + (1.0 - lensPoint.y)) * 0.5;
+        // lensPoint uses top-left origin after the screen UV Y flip.
+        float sweep = (lensPoint.x + lensPoint.y) * 0.5;
         float blade = exp(-pow((sweep - flickProgress) / 0.018, 2.0));
         color = mix(color, gradeAir(vec3(0.84, 0.88, 0.90)), blade * 0.20);
     }

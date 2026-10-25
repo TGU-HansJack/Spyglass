@@ -18,6 +18,7 @@ namespace spyglass.src.Client
         private WeatherSystemClient weather;
         private IShaderProgram shader;
         private MeshRef quad;
+        private LoadedTexture frostTexture;
         private bool disposed, failed;
         private bool sceneRenderedToPrimary;
         private long lastWeatherSample = long.MinValue;
@@ -72,6 +73,16 @@ namespace spyglass.src.Client
                 }
             }
             quad ??= capi.Render.UploadMesh(QuadMeshUtil.GetQuad());
+            if (frostTexture == null)
+            {
+                frostTexture = new LoadedTexture(capi);
+                using var bitmap = capi.Assets.Get(new AssetLocation(SpyglassMod.ModId, "textures/lens/frost.png")).ToBitmap(capi);
+                capi.Render.LoadTexture(bitmap, ref frostTexture, true, 33071, true);
+                GL.ActiveTexture(TextureUnit.Texture2);
+                GL.BindTexture(TextureTarget.Texture2D, frostTexture.TextureId);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+            }
             return true;
         }
 
@@ -238,9 +249,11 @@ namespace spyglass.src.Client
                 shader.Use();
                 shader.BindTexture2D("sceneTexture", primary.ColorTextureIds[0], 0);
                 shader.BindTexture2D("depthTexture", primary.DepthTextureId, 1);
+                shader.BindTexture2D("frostTexture", frostTexture.TextureId, 2);
                 // Explicit samplers are not needed; don't inherit a previous shadow sampler.
                 GL.BindSampler(0, 0);
                 GL.BindSampler(1, 0);
+                GL.BindSampler(2, 0);
                 shader.UniformMatrix("inverseProjection", inverseProjection);
                 shader.Uniform("aperture", (float)(aperture.X / viewport[2]), (float)(1 - (aperture.Y + aperture.Height) / viewport[3]),
                     (float)(aperture.Width / viewport[2]), (float)(aperture.Height / viewport[3]));
@@ -249,14 +262,11 @@ namespace spyglass.src.Client
                 shader.Uniform("lensRainStrength", rainStrength);
                 shader.Uniform("lensLight", ClientManipulation.GetLensLightLevel());
                 shader.Uniform("rainDropCount", rain.Drops.Count);
-                shader.Uniform("rainBeadCount", rain.Beads.Count);
                 shader.Uniform("frostCount", rain.Crystals.Count);
-                shader.Uniform("rainTrailCount", rain.Trails.Count);
                 shader.Uniforms4("rainDrops", LensRainModel.MaxDrops, rain.DropUniforms);
-                shader.Uniforms4("rainBeads", LensRainModel.MaxDrops, rain.BeadUniforms);
+                shader.Uniforms4("rainDropShapes", LensRainModel.MaxDrops, rain.DropShapeUniforms);
                 shader.Uniforms4("frostCrystals", LensRainModel.MaxFrost, rain.FrostUniforms);
-                shader.Uniforms4("rainTrails", LensRainModel.MaxTrails * 2, rain.TrailUniforms);
-                shader.Uniform("rainPool", rain.Pool);
+                shader.Uniforms4("frostDetails", LensRainModel.MaxFrost, rain.FrostDetailUniforms);
                 shader.Uniform("flickProgress", flickProgress);
                 float rimInset = config.GetVinetteStyle() == VignetteStyle.none ? 0 : (float)(SpyglassOverlay.MetalWidth * 1.1 / aperture.Width);
                 shader.Uniform("rainInset", Math.Min(.45f, rimInset), Math.Min(.45f, rimInset));
@@ -290,6 +300,8 @@ namespace spyglass.src.Client
             shader = null;
             quad?.Dispose();
             quad = null;
+            frostTexture?.Dispose();
+            frostTexture = null;
             weather = null;
         }
     }

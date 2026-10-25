@@ -80,65 +80,45 @@ foreach (var (fov, near, far) in new[] { (1.2, .1, 2048d), (.12, .01, 1024d), (.
 }
 Check(!AtmosphericOpticsModel.InvertProjection(new double[16], new float[16]), "singular projection rejected");
 
+var stationary = new LensRainModel();
+stationary.AddDrop(.2f, .25f, .008f);
+stationary.AddDrop(.5f, .55f, .015f);
+stationary.AddDrop(.8f, .90f, .022f);
+var positions = stationary.Drops.Select(d => (d.X, d.Y, d.Radius)).ToArray();
+for (int i = 0; i < 600; i++) stationary.Update(1f / 60, 0);
+Check(stationary.Drops.Select(d => (d.X, d.Y, d.Radius)).SequenceEqual(positions),
+    "all bead sizes remain fixed in place without gravity or position-based growth");
+Check(stationary.Drops.All(d => d.Fade > .7f && d.Fade < 1), "stationary beads evaporate through opacity rather than flattening");
 var merging = new LensRainModel();
-merging.AddDrop(.5f, .3f, .019f); merging.AddDrop(.51f, .3f, .019f);
+merging.AddDrop(.5f, .5f, .021f); merging.AddDrop(.51f, .5f, .021f);
 merging.Update(1f / 60, 0);
-Check(merging.Drops.Count == 1 && merging.Drops[0].Radius > .016f, "touching beads merge into a larger drop");
-Check(merging.Drops[0].Radius <= .028f, "merged drops stay below the visual size cap");
-float initialY = merging.Drops[0].Y;
-for (int i = 0; i < 180; i++) merging.Update(1f / 60, 0);
-Check(merging.Drops.Count == 1 && merging.Drops[0].Y > initialY + .1f, "large beads slide down under gravity");
-Check(merging.Trails.Count > 0, "sliding beads leave persistent water trails");
-Check(merging.Trails.Any(t => t.WidthTop > 0 && t.WidthTop < .02f && t.WidthBottom != t.WidthTop), "water trails vary in pixel width");
-Check(merging.Trails.All(t => float.IsFinite(t.X)),
-    "water trails and beads remain vertically aligned");
-Check(merging.Trails.Any(t => t.Fade > .8f), "water falls continuously and tracks remain visible");
-var classes = new LensRainModel();
-classes.AddDrop(.25f, .2f, .008f); classes.AddDrop(.5f, .2f, .014f); classes.AddDrop(.75f, .2f, .021f);
-Check(classes.Drops[0].Kind == LensRainModel.DropKind.Small && !classes.Drops[0].MayRoll, "small drops stay as round beads");
-Check(classes.Drops[1].Kind == LensRainModel.DropKind.Medium, "medium drops use the middle size class");
-Check(classes.Drops[2].Kind == LensRainModel.DropKind.Large && classes.Drops[2].MayRoll, "large drops roll and leave a short trail");
-Check(classes.Drops[2].Shape > classes.Drops[1].Shape, "large drops have a round-headed elongated silhouette");
-var mediumSamples = new LensRainModel();
-for (int i = 0; i < 12; i++) mediumSamples.AddDrop(.04f + i * .08f, .2f, .014f);
-Check(mediumSamples.Drops.Count(d => d.MayRoll) < 8,
-    "only a minority of medium drops roll");
-var parked = new LensRainModel();
-parked.AddDrop(.25f, .2f, .008f); parked.AddDrop(.75f, .2f, .014f);
-float smallY = parked.Drops[0].Y;
-for (int i = 0; i < 120; i++) parked.Update(1f / 60, 0);
-Check(parked.Drops.Any(d => d.Kind == LensRainModel.DropKind.Small && Math.Abs(d.Y - smallY) < .001f), "small drops remain on the glass");
-Check(mediumSamples.Drops.Any(d => d.Kind == LensRainModel.DropKind.Medium && !d.MayRoll), "non-rolling medium drops remain on the glass");
-var poolLink = new LensRainModel();
-poolLink.AddDrop(.5f, .84f, .022f);
-for (int i = 0; i < 300; i++) poolLink.Update(1f / 60, 0);
-Check(poolLink.Pool > 0 && poolLink.Trails.Any(t => t.Bottom >= 1f - poolLink.Pool - .002f), "bottom pool connects to the rolling drop tail");
-for (int i = 0; i < 600; i++) merging.Update(1f / 60, 0);
-Check(merging.Drained > 0, "runoff reaches the bottom and drains away");
+Check(merging.Drops.Count == 1 && merging.Drops[0].Radius == LensRainModel.MaxDropRadius,
+    "only touching beads merge and size is capped");
+Check(merging.Drops[0].X == .5f && merging.Drops[0].Y == .5f, "merging does not make beads crawl");
 var wet = new LensRainModel();
 for (int i = 0; i < 1800; i++) wet.Update(1f / 60, 1);
-Check(wet.HasWater && wet.Pool > .005f && wet.Pool <= .055f, "sustained rain accumulates bounded water at the bottom");
-Check(wet.Drops.Count <= LensRainModel.MaxDrops && wet.Beads.Count <= LensRainModel.MaxBeads && wet.Trails.Count <= LensRainModel.MaxTrails, "water simulation has bounded drop, bead and trail counts");
-wet.Update(1f / 60, 0);
-Check(wet.HasWater, "entering shelter stops new rain without erasing existing water");
-for (int i = 0; i < 18000; i++) wet.Update(1f / 60, 0);
-Check(!wet.HasWater, "sheltered lens dries after runoff and evaporation");
+Check(wet.HasWater && wet.Drops.Count <= LensRainModel.MaxDrops, "rain leaves a bounded set of surface beads");
+for (int i = 0; i < 3600; i++) wet.Update(1f / 60, 0);
+Check(!wet.HasWater, "surface beads evaporate within a minute after rain stops");
 var frost = new LensRainModel();
-for (int i = 0; i < 1200; i++) frost.Update(1f / 60, 0, true);
-Check(frost.Crystals.Count is > 0 and <= LensRainModel.MaxFrost, "cold or snowy weather has a chance to create one or two frost crystals");
+for (int i = 0; i < 2400; i++) frost.Update(1f / 60, 0, true);
+Check(frost.Crystals.Count is > 0 and <= LensRainModel.MaxFrost, "cold exposure forms at most two frost patches");
+Check(frost.Crystals.All(c => c.X is .012f or .988f || c.Y is .012f or .988f), "frost is anchored at a lens edge");
+Check(frost.Crystals.All(c => c.Radius >= .34f && c.Radius <= .41f), "grown frost extends at least one sixth of the full lens");
+Check(frost.Crystals.All(c => c.Growth > .9f), "frost grows from the edge over time");
 for (int i = 0; i < 900; i++) frost.Update(1f / 60, 0, false);
-Check(frost.Crystals.Count == 0, "frost fades after warming");
+Check(frost.Crystals.Count == 0, "warm exposure melts frost");
 var warm = new LensRainModel();
-for (int i = 0; i < 600; i++) warm.Update(1f / 60, 0, false);
-Check(warm.Crystals.Count == 0, "warm clear glass stays frost-free");
+for (int i = 0; i < 1200; i++) warm.Update(1f / 60, 0, false);
+Check(!warm.HasWater, "warm dry glass generates neither frost nor beads");
 var rate30 = new LensRainModel(); var rate60 = new LensRainModel();
-for (int i = 0; i < 600; i++) rate30.Update(1f / 30, 1);
-for (int i = 0; i < 1200; i++) rate60.Update(1f / 60, 1);
-Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.Pool == rate60.Pool
-    && rate30.TrailUniforms.SequenceEqual(rate60.TrailUniforms),
-    "fixed-step water simulation agrees at 30 and 60 FPS");
-rate30.Clear(); rate30.Update(1f / 60, 0);
-Check(!rate30.HasWater && rate30.DropUniforms.All(v => v == 0) && rate30.BeadUniforms.All(v => v == 0), "lens reset clears water and uploaded drop data");
+for (int i = 0; i < 600; i++) rate30.Update(1f / 30, 1, true);
+for (int i = 0; i < 1200; i++) rate60.Update(1f / 60, 1, true);
+Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.FrostDetailUniforms.SequenceEqual(rate60.FrostDetailUniforms),
+    "beads and edge growth agree at 30 and 60 FPS");
+rate30.Clear();
+Check(!rate30.HasWater && rate30.DropUniforms.All(v => v == 0) && rate30.FrostUniforms.All(v => v == 0),
+    "flick clears all surface states and uploaded data");
 
 using var window = new NativeWindow(new NativeWindowSettings {
     ClientSize = new Vector2i(65, 65), StartVisible = false, StartFocused = false,
@@ -179,6 +159,15 @@ int Texture(int size, PixelInternalFormat format, PixelFormat pixelFormat, float
     GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
     return id;
 }
+GL.ActiveTexture(TextureUnit.Texture2);
+int frostTexture = GL.GenTexture(); GL.BindTexture(TextureTarget.Texture2D, frostTexture);
+byte[] frostImage = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "fixtures", "frost.rgba"));
+GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, 512, 512, 0, PixelFormat.Rgba, PixelType.UnsignedByte, frostImage);
+GL.GenerateMipmap(GenerateMipmapTarget.Texture2D);
+GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
+GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+GL.BindSampler(2, 0); GL.Uniform1(U("frostTexture"), 2);
+GL.ActiveTexture(TextureUnit.Texture0);
 const int Size = 65;
 int scene = Texture(1, PixelInternalFormat.Rgba32f, PixelFormat.Rgba, [.2f, .2f, .2f, .7f]);
 int depthTexture = Texture(1, PixelInternalFormat.R32f, PixelFormat.Red, [.5f]);
@@ -259,14 +248,11 @@ waterModel.Update(1f / 60, 0);
 void UploadWater(LensRainModel model)
 {
     GL.Uniform1(U("rainDropCount"), model.Drops.Count);
-    GL.Uniform1(U("rainBeadCount"), model.Beads.Count);
-    GL.Uniform1(U("rainTrailCount"), model.Trails.Count);
     GL.Uniform1(U("frostCount"), model.Crystals.Count);
     GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, model.DropUniforms);
-    GL.Uniform4(U("rainBeads"), LensRainModel.MaxBeads, model.BeadUniforms);
+    GL.Uniform4(U("rainDropShapes"), LensRainModel.MaxDrops, model.DropShapeUniforms);
     GL.Uniform4(U("frostCrystals"), LensRainModel.MaxFrost, model.FrostUniforms);
-    GL.Uniform4(U("rainTrails"), LensRainModel.MaxTrails * 2, model.TrailUniforms);
-    F("rainPool", model.Pool);
+    GL.Uniform4(U("frostDetails"), LensRainModel.MaxFrost, model.FrostDetailUniforms);
 }
 F("lensRainStrength", 1); F("lensLight", 1);
 UploadWater(waterModel);
@@ -281,7 +267,7 @@ frostModel.Clear(); UploadWater(frostModel);
 Near(Pixel(beads, 2, 2), .2, "GPU dry glass outside the bead is unchanged");
 for (int i = 0; i < 30; i++) waterModel.Update(1f / 60, 0);
 UploadWater(waterModel);
-Check(!beads.SequenceEqual(Render(coefficient: 0)), "GPU water follows simulated downward motion");
+Check(!beads.SequenceEqual(Render(coefficient: 0)), "GPU bead opacity changes during evaporation");
 Near(beads[(32 * Size + 32) * 4 + 3], .7, "GPU water preserves scene alpha");
 F("lensRainStrength", 0);
 var disabledRain = Render(coefficient: 0);
@@ -291,16 +277,42 @@ Check(disabledRain.SequenceEqual(Render(coefficient: 0, fade: 0)), "GPU water fa
 Near(Pixel(Render(coefficient: 0, square: true), 2, 2), .031, "GPU water stays inside the lens");
 waterModel.Clear(); waterModel.Update(1f / 60, 0); UploadWater(waterModel);
 Check(disabledRain.SequenceEqual(Render(coefficient: 0)), "GPU dry lens has no residual effect");
-// Isolate a vertical residual stream and the bottom meniscus.
-GL.Uniform1(U("rainTrailCount"), 1);
-GL.Uniform4(U("rainTrails"), .5f, .5f, .4f, .6f);
-GL.Uniform4(U("rainTrails[1]"), .012f, .008f, 1f, .62f);
-Check(Pixel(Render(coefficient: 0)) < .2f, "GPU residual streams shade a vertical water path");
-GL.Uniform1(U("rainTrailCount"), 0); F("rainPool", .04f);
-var pooled = Render(coefficient: 0);
-Check(Math.Min(Pixel(pooled, 32, 0), Pixel(pooled, 32, 60)) < .2f, "GPU accumulated water occupies the bottom edge");
-Check(Math.Max(Pixel(pooled, 32, 0), Pixel(pooled, 32, 60)) > .199f, "GPU bottom water does not flood the upper lens");
-F("rainPool", 0); F("lensRainStrength", 0);
+// Empty glass must have no phantom trails or water along its lower edge.
+GL.Uniform1(U("frostCount"), 0);
+var emptySurface = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size * Size).All(i => Math.Abs(emptySurface[i * 4] - .2f) < .0001f),
+    "GPU clear surface has no water trails or bottom water plane");
+var onlyBead = new LensRainModel(); onlyBead.AddDrop(.5f, .5f, .02f); onlyBead.Update(1f / 60, 0);
+UploadWater(onlyBead);
+var isolated = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size).All(x => Math.Abs(Pixel(isolated, x, 0) - .2f) < .0001f),
+    "GPU bead creates no bottom accumulation");
+Near(Pixel(isolated, 32, 10), .2f, "GPU isolated bead leaves no vertical tail");
+onlyBead.Clear(); UploadWater(onlyBead);
+// A deterministic left-edge patch tests visibility and growth, not just any
+// changed output pixel (alpha must not count as a visible frost pixel).
+GL.Uniform1(U("frostCount"), 1);
+GL.Uniform4(U("frostCrystals"), .012f, .5f, .30f, 1f);
+GL.Uniform4(U("frostDetails"), 0f, 0f, .4f, 0f);
+var unborn = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size * Size).All(i => Math.Abs(unborn[i * 4] - .2f) < .0001f), "GPU frost starts with bare glass");
+GL.Uniform4(U("frostDetails"), 0f, .35f, .4f, 0f);
+var growing = Render(coefficient: 0);
+GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, 0f);
+var grown = Render(coefficient: 0);
+int Coverage(float[] px) => Enumerable.Range(0, Size * Size).Count(i => px[i * 4] > .205f);
+Check(Coverage(grown) > Coverage(growing) && Coverage(growing) > 0, "GPU frost branches grow inward instead of fading in all at once");
+int farthest = Enumerable.Range(0, Size * Size).Where(i => grown[i * 4] > .205f).Max(i => i % Size);
+Check(farthest >= Size / 6, "GPU frost patch visibly spans at least a sixth of the lens");
+Check(grown.Where((_, i) => i % 4 == 0).Max() > .55f, "GPU ice ridges are clearer than the old low-opacity snowflake");
+Check(grown.Where((_, i) => i % 4 == 0).Max() < .85f, "GPU ice transmits the scene through its bright ridges");
+Check(Coverage(grown) < Size * Size / 10, "GPU frost has transparent gaps and does not create an opaque sheet");
+Near(Pixel(grown, 40, 32), .2f, "GPU edge frost leaves the center view clear");
+GL.Uniform4(U("frostDetails"), 0f, .35f, .4f, 0f);
+var growingAgain = Render(coefficient: 0);
+Check(growing.SequenceEqual(growingAgain), "GPU partially grown frost has stable branches without flicker");
+GL.Uniform1(U("frostCount"), 0);
+F("lensRainStrength", 0);
 
 GL.Enable(EnableCap.DepthTest); GL.Enable(EnableCap.Blend); GL.Enable(EnableCap.CullFace); GL.DepthMask(true);
 GL.BlendFuncSeparate(BlendingFactorSrc.SrcAlpha, BlendingFactorDest.OneMinusSrcAlpha, BlendingFactorSrc.One, BlendingFactorDest.Zero);
@@ -314,6 +326,7 @@ try
     GL.UseProgram(0); GL.BindVertexArray(0); GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
     GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, 0); GL.BindSampler(0, 0);
     GL.ActiveTexture(TextureUnit.Texture1); GL.BindTexture(TextureTarget.Texture2D, 0);
+    GL.ActiveTexture(TextureUnit.Texture2); GL.BindTexture(TextureTarget.Texture2D, 0); GL.BindSampler(2, sampler);
     throw new InvalidOperationException("simulated draw failure");
 }
 catch (InvalidOperationException) { }
@@ -331,9 +344,12 @@ Check(GL.GetInteger(GetPName.TextureBinding2D) == scene && GL.GetInteger(GetPNam
     "GL scene texture and sampler restored");
 GL.ActiveTexture(TextureUnit.Texture1);
 Check(GL.GetInteger(GetPName.TextureBinding2D) == depthTexture, "GL depth texture restored");
+GL.ActiveTexture(TextureUnit.Texture2);
+Check(GL.GetInteger(GetPName.TextureBinding2D) == frostTexture && GL.GetInteger(GetPName.SamplerBinding) == 0,
+    "GL frost texture and sampler restored on the third texture unit");
 Check(GL.GetError() == ErrorCode.NoError, "no OpenGL errors");
 if (args.Length == 2 && args[0] == "--preview")
     OpticsPreview.Render(program, vao, Path.GetFullPath(args[1]));
 GL.DeleteSampler(sampler); GL.DeleteBuffer(vbo); GL.DeleteVertexArray(vao); GL.DeleteFramebuffer(framebuffer);
-GL.DeleteTexture(scene); GL.DeleteTexture(depthTexture); GL.DeleteTexture(output); GL.DeleteProgram(program);
+GL.DeleteTexture(frostTexture); GL.DeleteTexture(scene); GL.DeleteTexture(depthTexture); GL.DeleteTexture(output); GL.DeleteProgram(program);
 Console.WriteLine($"SUCCESS {checks} assertions");

@@ -28,7 +28,7 @@ internal static class OpticsPreview
         GL.ActiveTexture(TextureUnit.Texture1); GL.BindSampler(1, 0);
         int depth = Texture();
         GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.R32f, 1, 1, 0, PixelFormat.Red, PixelType.Float, new[] { d });
-        GL.ActiveTexture(TextureUnit.Texture2);
+        GL.ActiveTexture(TextureUnit.Texture3);
         int output = Texture();
         GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, size, size, 0, PixelFormat.Rgba, PixelType.UnsignedByte, IntPtr.Zero);
         int framebuffer = GL.GenFramebuffer();
@@ -48,7 +48,7 @@ internal static class OpticsPreview
         GL.Uniform4(U("colorGrade"), 1f, 1f, 1f, 0f);
         F("sepia", 0); F("fade", 1); F("dayWeight", 1);
         F("flickProgress", 1);
-        F("frostCount", 0);
+        GL.Uniform1(U("frostCount"), 0);
         var inverse = new float[16];
         if (!AtmosphericOpticsModel.InvertProjection(projection, inverse)) throw new InvalidOperationException("Preview projection singular.");
         GL.UniformMatrix4(U("inverseProjection"), 1, false, inverse);
@@ -75,7 +75,7 @@ internal static class OpticsPreview
             for (int y = side - 1; y >= 0; y--) stream.Write(pixels, y * side * 3, side * 3);
         }
         // Water preview uses the production simulation and shader. Render a
-        // steady rainfall followed by sheltered runoff, without new rainfall.
+        // steady rainfall followed by sheltered evaporation, without any downward motion.
         var water = new LensRainModel();
         F("extinction", 0); F("glareStrength", 0);
         F("lensRainStrength", 1); F("lensLight", 1);
@@ -86,14 +86,11 @@ internal static class OpticsPreview
         {
             for (int tick = 0; tick < 6; tick++) water.Update(1f / 60, frame < 45 ? 1 : 0);
             GL.Uniform1(U("rainDropCount"), water.Drops.Count);
-            GL.Uniform1(U("rainBeadCount"), water.Beads.Count);
-            GL.Uniform1(U("rainTrailCount"), water.Trails.Count);
             GL.Uniform1(U("frostCount"), water.Crystals.Count);
             GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, water.DropUniforms);
-            GL.Uniform4(U("rainBeads"), LensRainModel.MaxBeads, water.BeadUniforms);
-            GL.Uniform4(U("rainTrails"), LensRainModel.MaxTrails * 2, water.TrailUniforms);
+            GL.Uniform4(U("rainDropShapes"), LensRainModel.MaxDrops, water.DropShapeUniforms);
             GL.Uniform4(U("frostCrystals"), LensRainModel.MaxFrost, water.FrostUniforms);
-            F("rainPool", water.Pool);
+            GL.Uniform4(U("frostDetails"), LensRainModel.MaxFrost, water.FrostDetailUniforms);
             GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
             var pixels = new byte[side * side * 3];
             GL.ReadPixels(origin, origin, side, side, PixelFormat.Rgb, PixelType.UnsignedByte, pixels);
@@ -102,14 +99,17 @@ internal static class OpticsPreview
             for (int y = side - 1; y >= 0; y--) stream.Write(pixels, y * side * 3, side * 3);
         }
         var frost = new LensRainModel();
-        while (GL.GetError() != ErrorCode.NoError) { }
-        F("rainPool", 0); GL.Uniform1(U("rainDropCount"), 0); GL.Uniform1(U("rainBeadCount"), 0);
-        GL.Uniform1(U("rainTrailCount"), 0); F("lensRainStrength", 0);
+        // Skip the random waiting time, then preview the actual eight-second
+        // edge growth rather than selecting an already finished crystal.
+        for (int tick = 0; tick < 3600 && frost.Crystals.Count == 0; tick++) frost.Update(1f / 60, 0, true);
+        GL.Uniform1(U("rainDropCount"), 0);
+        F("lensRainStrength", 0);
         for (int frame = 0; frame < 90; frame++)
         {
-            for (int tick = 0; tick < 60; tick++) frost.Update(1f / 60, 0, true);
+            for (int tick = 0; tick < 6; tick++) frost.Update(1f / 60, 0, true);
             GL.Uniform1(U("frostCount"), frost.Crystals.Count);
             GL.Uniform4(U("frostCrystals"), LensRainModel.MaxFrost, frost.FrostUniforms);
+            GL.Uniform4(U("frostDetails"), LensRainModel.MaxFrost, frost.FrostDetailUniforms);
             var uniformError = GL.GetError();
             if (uniformError != ErrorCode.NoError) throw new InvalidOperationException("Frost preview uniform error: " + uniformError);
             GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
