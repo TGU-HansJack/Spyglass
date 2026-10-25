@@ -16,21 +16,27 @@ namespace spyglass.src.Client
         {
             internal float XTop, XBottom, Top, Bottom, WidthTop, WidthBottom, Life, Gap;
         }
+        internal sealed class Bead
+        {
+            internal float X, Y, Radius;
+        }
         internal readonly List<Drop> Drops = new();
         internal readonly List<Trail> Trails = new();
+        internal readonly List<Bead> Beads = new();
         internal readonly float[] DropUniforms = new float[MaxDrops * 4];
         internal readonly float[] TrailUniforms = new float[MaxTrails * 8];
+        internal readonly float[] BeadUniforms = new float[MaxDrops * 4];
         internal float Pool { get; private set; }
         internal float Drained { get; private set; }
         private Random random = new(90417);
         private double remainder, spawn;
 
-        internal bool HasWater => Drops.Count > 0 || Trails.Count > 0 || Pool > 0.0001f;
+        internal bool HasWater => Drops.Count > 0 || Trails.Count > 0 || Beads.Count > 0 || Pool > 0.0001f;
 
         internal void Clear()
         {
-            Drops.Clear(); Trails.Clear(); Pool = 0; Drained = 0;
-            Array.Clear(DropUniforms); Array.Clear(TrailUniforms);
+            Drops.Clear(); Trails.Clear(); Beads.Clear(); Pool = 0; Drained = 0;
+            Array.Clear(DropUniforms); Array.Clear(TrailUniforms); Array.Clear(BeadUniforms);
             remainder = spawn = 0; random = new Random(90417);
         }
 
@@ -55,7 +61,7 @@ namespace spyglass.src.Client
                 X = Math.Clamp(x, 0, 1), Y = startY, StartY = startY, LastTrailX = Math.Clamp(x, 0, 1), LastTrailY = startY,
                 Radius = radius, Drift = 0,
                 NextTrail = .012f + (float)random.NextDouble() * .022f,
-                Pause = .04f + (float)random.NextDouble() * .20f,
+                Pause = 0,
                 Phase = (float)random.NextDouble() * 6.2831855f
             });
         }
@@ -85,6 +91,12 @@ namespace spyglass.src.Client
                 TrailUniforms[j + 4] = t.WidthTop; TrailUniforms[j + 5] = t.WidthBottom;
                 TrailUniforms[j + 6] = t.Life / 30f; TrailUniforms[j + 7] = t.Gap;
             }
+            for (int i = 0; i < Beads.Count; i++)
+            {
+                var b = Beads[i]; int j = i * 4;
+                BeadUniforms[j] = b.X; BeadUniforms[j + 1] = b.Y;
+                BeadUniforms[j + 2] = b.Radius; BeadUniforms[j + 3] = 1;
+            }
         }
 
         private void Tick(float dt, float rain)
@@ -98,6 +110,11 @@ namespace spyglass.src.Client
             }
             for (int i = Trails.Count - 1; i >= 0; i--)
                 if ((Trails[i].Life -= dt) <= 0) Trails.RemoveAt(i);
+
+            // Small beads remain lodged in the runoff track until a moving drop
+            // reaches them; they then merge into the moving water.
+            for (int i = Beads.Count - 1; i >= 0; i--)
+                Beads[i].Radius = Math.Max(.0025f, Beads[i].Radius - dt * (rain > 0 ? .00001f : .00002f));
 
             // Two touching beads conserve their lens-surface area when merging.
             for (int i = 0; i < Drops.Count; i++)
@@ -124,28 +141,21 @@ namespace spyglass.src.Client
                 var d = Drops[i];
                 d.Radius = Math.Max(0, d.Radius - dt * (rain > 0 ? .00005f : .0006f));
                 if (d.Radius < .002f) { Drops.RemoveAt(i); continue; }
+                for (int j = Beads.Count - 1; j >= 0; j--)
+                {
+                    var bead = Beads[j];
+                    if (Math.Abs(bead.Y - d.Y) > bead.Radius + d.Radius * .8f) continue;
+                    d.Radius = MathF.Sqrt(d.Radius * d.Radius + bead.Radius * bead.Radius);
+                    Beads.RemoveAt(j);
+                }
                 // Even small falling drops move vertically; only the tiny beads
                 // deposited on an old track remain parked until another drop
                 // reaches them.
                 if (d.Radius > .0065f || d.Speed > 0)
                 {
-                    if (d.Pause > 0)
-                    {
-                        d.Pause -= dt;
-                        d.Speed *= MathF.Exp(-dt * 18);
-                    }
-                    else
-                    {
-                        float pulse = .45f + .55f * (0.5f + 0.5f * MathF.Sin(d.Phase + d.Y * 27));
-                        d.Speed = Math.Min(.45f, d.Speed + dt * Math.Max(.015f, (d.Radius - .01f) * (5 + 4 * pulse)));
-                        d.Y += d.Speed * dt;
-                        if (random.NextDouble() < dt * (.10 + d.Radius * 2.5))
-                        {
-                            d.Pause = .025f + (float)random.NextDouble() * .13f;
-                            d.Speed *= .35f;
-                            d.Drift = 0;
-                        }
-                    }
+                    float pulse = .45f + .55f * (0.5f + 0.5f * MathF.Sin(d.Phase + d.Y * 27));
+                    d.Speed = Math.Min(.45f, d.Speed + dt * Math.Max(.015f, (d.Radius - .01f) * (5 + 4 * pulse)));
+                    d.Y += d.Speed * dt;
                     d.Drift = 0;
                     if (d.Y - d.LastTrailY >= d.NextTrail && d.Y > d.LastTrailY)
                     {
@@ -153,8 +163,13 @@ namespace spyglass.src.Client
                         AddTrail(d.LastTrailX, d.LastTrailY, d.X, d.Y, width,
                             width * (.65f + (float)random.NextDouble() * .8f),
                             12f + (float)random.NextDouble() * 18f);
-                        if (random.NextDouble() < .20)
-                            AddDrop(d.LastTrailX, d.LastTrailY, Math.Clamp(width * (.28f + (float)random.NextDouble() * .32f), .0025f, .007f));
+                        if (random.NextDouble() < .55 && Beads.Count < MaxDrops)
+                            Beads.Add(new Bead
+                            {
+                                X = d.X,
+                                Y = d.Y,
+                                Radius = Math.Clamp(width * (.45f + (float)random.NextDouble() * .9f), .003f, .012f)
+                            });
                         d.LastTrailY = d.Y;
                         d.LastTrailX = d.X;
                         d.NextTrail = .010f + (float)random.NextDouble() * .027f;
@@ -166,6 +181,16 @@ namespace spyglass.src.Client
                     Drops.RemoveAt(i);
                 }
             }
+            for (int i = 0; i < Beads.Count; i++)
+                for (int j = Beads.Count - 1; j > i; j--)
+                {
+                    var a = Beads[i]; var b = Beads[j];
+                    if (Math.Abs(a.Y - b.Y) >= a.Radius + b.Radius) continue;
+                    float aa = a.Radius * a.Radius, bb = b.Radius * b.Radius;
+                    a.X = (a.X * aa + b.X * bb) / (aa + bb);
+                    a.Radius = MathF.Sqrt(aa + bb);
+                    Beads.RemoveAt(j);
+                }
             float drainage = Math.Min(Pool, dt * (.0005f + Pool * .08f));
             Pool -= drainage;
             Drained += drainage;
@@ -181,6 +206,24 @@ namespace spyglass.src.Client
                 WidthTop = widthTop, WidthBottom = widthBottom, Life = life,
                 Gap = (float)random.NextDouble()
             });
+        }
+
+        internal void SettleAllDrops()
+        {
+            for (int i = 0; i < Drops.Count && Beads.Count < MaxDrops; i++)
+            {
+                var drop = Drops[i];
+                Beads.Add(new Bead { X = drop.X, Y = drop.Y, Radius = Math.Clamp(drop.Radius, .003f, .015f) });
+            }
+            Drops.Clear();
+            Array.Clear(DropUniforms);
+            Array.Clear(BeadUniforms);
+            for (int i = 0; i < Beads.Count; i++)
+            {
+                int j = i * 4; var bead = Beads[i];
+                BeadUniforms[j] = bead.X; BeadUniforms[j + 1] = bead.Y;
+                BeadUniforms[j + 2] = bead.Radius; BeadUniforms[j + 3] = 1;
+            }
         }
     }
 }

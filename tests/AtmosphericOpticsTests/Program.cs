@@ -91,14 +91,14 @@ Check(merging.Trails.Count > 0, "sliding beads leave persistent water trails");
 Check(merging.Trails.Any(t => t.WidthTop > 0 && t.WidthTop < .02f && t.WidthBottom != t.WidthTop), "water trails vary in pixel width");
 Check(merging.Trails.All(t => t.XBottom == t.XTop) && merging.Drops.All(d => d.Drift == 0),
     "water trails and beads remain vertically aligned");
-Check(merging.Drops.Any(d => d.Pause > 0) || merging.Trails.Any(t => t.Life > 8f),
-    "water motion includes pauses and irregular trail lifetimes");
+Check(merging.Drops.All(d => d.Pause == 0) && merging.Trails.Any(t => t.Life > 8f),
+    "water falls continuously and trails have long lifetimes");
 for (int i = 0; i < 600; i++) merging.Update(1f / 60, 0);
 Check(merging.Drained > 0, "runoff reaches the bottom and drains away");
 var wet = new LensRainModel();
 for (int i = 0; i < 1800; i++) wet.Update(1f / 60, 1);
 Check(wet.HasWater && wet.Pool > .005f && wet.Pool <= .055f, "sustained rain accumulates bounded water at the bottom");
-Check(wet.Drops.Count <= LensRainModel.MaxDrops && wet.Trails.Count <= LensRainModel.MaxTrails, "water simulation has bounded drop and trail counts");
+Check(wet.Drops.Count <= LensRainModel.MaxDrops && wet.Beads.Count <= LensRainModel.MaxDrops && wet.Trails.Count <= LensRainModel.MaxTrails, "water simulation has bounded drop, bead and trail counts");
 wet.Update(1f / 60, 0);
 Check(wet.HasWater, "entering shelter stops new rain without erasing existing water");
 for (int i = 0; i < 7200; i++) wet.Update(1f / 60, 0);
@@ -110,7 +110,7 @@ Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.Pool == r
     && rate30.TrailUniforms.SequenceEqual(rate60.TrailUniforms),
     "fixed-step water simulation agrees at 30 and 60 FPS");
 rate30.Clear(); rate30.Update(1f / 60, 0);
-Check(!rate30.HasWater && rate30.DropUniforms.All(v => v == 0), "lens reset clears water and uploaded drop data");
+Check(!rate30.HasWater && rate30.DropUniforms.All(v => v == 0) && rate30.BeadUniforms.All(v => v == 0), "lens reset clears water and uploaded drop data");
 
 using var window = new NativeWindow(new NativeWindowSettings {
     ClientSize = new Vector2i(65, 65), StartVisible = false, StartFocused = false,

@@ -16,8 +16,10 @@ uniform vec2 sunScreen;
 uniform float lensRainStrength;
 uniform float lensLight;
 uniform int rainDropCount;
+uniform int rainBeadCount;
 uniform int rainTrailCount;
 uniform vec4 rainDrops[32];
+uniform vec4 rainBeads[32];
 uniform vec4 rainTrails[96];
 uniform float rainPool;
 uniform vec2 rainInset;
@@ -39,6 +41,13 @@ float waterHeight(vec2 p)
         float body = max(0.0, 1.0 - dot(q, q));
         float silhouette = floor(body * body * 5.0 + 0.5) / 5.0;
         height = max(height, silhouette);
+    }
+    for (int i = 0; i < rainBeadCount; i++)
+    {
+        vec4 bead = rainBeads[i];
+        vec2 q = (p - bead.xy) / max(bead.z, 0.001);
+        float body = max(0.0, 1.0 - dot(q, q));
+        height = max(height, floor(body * body * 5.0 + 0.5) / 5.0);
     }
     for (int i = 0; i < rainTrailCount; i++)
     {

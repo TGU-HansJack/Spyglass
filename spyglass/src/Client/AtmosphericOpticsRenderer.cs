@@ -245,8 +245,10 @@ namespace spyglass.src.Client
                 shader.Uniform("lensRainStrength", rainStrength);
                 shader.Uniform("lensLight", ClientManipulation.GetLensLightLevel());
                 shader.Uniform("rainDropCount", rain.Drops.Count);
+                shader.Uniform("rainBeadCount", rain.Beads.Count);
                 shader.Uniform("rainTrailCount", rain.Trails.Count);
                 shader.Uniforms4("rainDrops", LensRainModel.MaxDrops, rain.DropUniforms);
+                shader.Uniforms4("rainBeads", LensRainModel.MaxDrops, rain.BeadUniforms);
                 shader.Uniforms4("rainTrails", LensRainModel.MaxTrails * 2, rain.TrailUniforms);
                 shader.Uniform("rainPool", rain.Pool);
                 shader.Uniform("flickProgress", flickProgress);

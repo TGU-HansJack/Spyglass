@@ -39,7 +39,7 @@ namespace spyglass.src
 
         public override void OnHeldInteractStart(ItemSlot slot, EntityAgent byEntity, BlockSelection blockSel, EntitySelection entitySel, bool firstEvent, ref EnumHandHandling handling)
         {
-            if (byEntity.Controls.CtrlKey)
+            if (byEntity.Controls.CtrlKey || (byEntity.World.Side == EnumAppSide.Client && ClientManipulation.CtrlHeld()))
             {
                 if (byEntity.World.Side == EnumAppSide.Client && ClientManipulation.IsLocalPlayer(byEntity))
                     SpyglassMod.FlickLensWater();
@@ -57,7 +57,7 @@ namespace spyglass.src
 
         public override bool OnHeldInteractStep(float secondsUsed, ItemSlot slot, EntityAgent byEntity, BlockSelection blockSel, EntitySelection entitySel)
         {
-            if (byEntity.Controls.CtrlKey)
+            if (byEntity.Controls.CtrlKey || (byEntity.World.Side == EnumAppSide.Client && ClientManipulation.CtrlHeld()))
             {
                 updateState(false, byEntity);
                 return false;
