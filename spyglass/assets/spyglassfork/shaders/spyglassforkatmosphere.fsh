@@ -148,7 +148,9 @@ void main()
     }
     if (flickProgress < 1.0)
     {
-        float sweep = (lensPoint.x + lensPoint.y) * 0.5;
+        // lensPoint.y is inverted above: 0,1 is top-left and 1,0 is
+        // bottom-right, so both coordinates advance during the diagonal wipe.
+        float sweep = (lensPoint.x + (1.0 - lensPoint.y)) * 0.5;
         float blade = exp(-pow((sweep - flickProgress) / 0.018, 2.0));
         color = mix(color, gradeAir(vec3(0.84, 0.88, 0.90)), blade * 0.20);
     }
