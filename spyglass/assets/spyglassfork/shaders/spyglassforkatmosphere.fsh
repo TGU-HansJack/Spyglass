@@ -110,10 +110,24 @@ void main()
     lensPoint.y = 1.0 - lensPoint.y;
     float water = lensRainStrength > 0.0 ? beadHeight(lensPoint) : 0.0;
     if (any(lessThan(lensPoint, vec2(0.0))) || any(greaterThan(lensPoint, vec2(1.0)))) water = 0.0;
+    vec2 frost = vec2(0.0);
+    for (int i = 0; i < frostCount; i++)
+        frost = max(frost, frostTextureCoverage(lensPoint, frostCrystals[i], frostDetails[i]));
+    if (any(lessThan(lensPoint, vec2(0.0))) || any(greaterThan(lensPoint, vec2(1.0)))) frost = vec2(0.0);
     vec2 normal = vec2(dFdx(water), dFdy(water)) * aperture.zw * frameSize / 128.0;
-    vec2 refractedUv = clamp(texCoord + normal * lensRainStrength * 0.012,
+    // Ice opacity supplies microrelief. Gradients bend the background as on a
+    // surface bead; displacement is bounded in physical pixels, not screen size.
+    vec2 iceNormal = vec2(dFdx(frost.y), dFdy(frost.y));
+    vec2 iceShift = clamp(iceNormal * 9.0, vec2(-1.75), vec2(1.75));
+    iceShift *= step(0.001, frost.y);
+    vec2 refractedUv = clamp(texCoord + normal * lensRainStrength * 0.012 + iceShift / frameSize,
         aperture.xy + 0.5 / frameSize, farEdge - 0.5 / frameSize);
     vec3 color = texture(sceneTexture, refractedUv).rgb;
+    // A small amount of rough transmission softens details inside thicker ice.
+    vec2 roughness = vec2(0.65) / frameSize;
+    vec3 roughScene = (texture(sceneTexture, clamp(refractedUv + roughness, aperture.xy, farEdge)).rgb
+        + texture(sceneTexture, clamp(refractedUv - roughness, aperture.xy, farEdge)).rgb) * 0.5;
+    color = mix(color, roughScene, frost.y * 0.16);
     float depth = texture(depthTexture, texCoord).r;
     vec4 view = inverseProjection * vec4(texCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     // A cleared depth represents the sky, which keeps the engine's existing fog.
@@ -141,13 +155,12 @@ void main()
         float highlight = clamp((-normal.x + normal.y) * 0.14, 0.0, 0.045) * clamp(lensLight, 0.0, 1.0);
         color *= 1.0 + (highlight - edgeShade - water * 0.055) * lensRainStrength;
     }
-    vec2 frost = vec2(0.0);
-    for (int i = 0; i < frostCount; i++)
-        frost = max(frost, frostTextureCoverage(lensPoint, frostCrystals[i], frostDetails[i]));
-    if (any(lessThan(lensPoint, vec2(0.0))) || any(greaterThan(lensPoint, vec2(1.0)))) frost = vec2(0.0);
-    // Transparent facets with a crisp, brighter crystalline rim.
-    color = mix(color, vec3(0.72, 0.85, 0.91), frost.y * 0.24);
-    color = mix(color, vec3(0.91, 0.97, 1.0), frost.x * 0.60);
+    // Reflection is driven by the microfacets and local light. Most radiance
+    // is transmitted scene color; no solid white texture is painted over it.
+    float iceReflection = (frost.x * 0.14 + clamp(dot(iceNormal, vec2(-0.6, 0.8)), 0.0, 0.35) * 0.38)
+        * clamp(lensLight, 0.0, 1.0);
+    color *= 1.0 - frost.y * 0.015;
+    color = mix(color, gradeAir(vec3(0.92, 0.98, 1.0)), iceReflection);
     if (flickProgress < 1.0)
     {
         // lensPoint uses top-left origin after the screen UV Y flip.

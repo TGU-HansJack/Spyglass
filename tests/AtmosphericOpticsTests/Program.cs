@@ -304,13 +304,36 @@ int Coverage(float[] px) => Enumerable.Range(0, Size * Size).Count(i => px[i * 4
 Check(Coverage(grown) > Coverage(growing) && Coverage(growing) > 0, "GPU frost branches grow inward instead of fading in all at once");
 int farthest = Enumerable.Range(0, Size * Size).Where(i => grown[i * 4] > .205f).Max(i => i % Size);
 Check(farthest >= Size / 6, "GPU frost patch visibly spans at least a sixth of the lens");
-Check(grown.Where((_, i) => i % 4 == 0).Max() > .55f, "GPU ice ridges are clearer than the old low-opacity snowflake");
-Check(grown.Where((_, i) => i % 4 == 0).Max() < .85f, "GPU ice transmits the scene through its bright ridges");
+Check(grown.Where((_, i) => i % 4 == 0).Max() > .205f, "GPU microfacets catch light along ice ridges");
+Check(grown.Where((_, i) => i % 4 == 0).Max() < .50f, "GPU ice transmits most scene color rather than a white painted texture");
 Check(Coverage(grown) < Size * Size / 10, "GPU frost has transparent gaps and does not create an opaque sheet");
 Near(Pixel(grown, 40, 32), .2f, "GPU edge frost leaves the center view clear");
 GL.Uniform4(U("frostDetails"), 0f, .35f, .4f, 0f);
 var growingAgain = Render(coefficient: 0);
 Check(growing.SequenceEqual(growingAgain), "GPU partially grown frost has stable branches without flicker");
+// Refraction must still alter a patterned scene when illumination is zero;
+// this distinguishes transmitted background displacement from white alpha paint.
+GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, scene);
+var pattern = new float[Size * Size * 4];
+for (int y = 0; y < Size; y++) for (int x = 0; x < Size; x++)
+{
+    int j = (y * Size + x) * 4;
+    pattern[j] = pattern[j + 1] = pattern[j + 2] = ((x / 3 + y / 3) % 2 == 0) ? .1f : .7f;
+    pattern[j + 3] = .7f;
+}
+GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, Size, Size, 0, PixelFormat.Rgba, PixelType.Float, pattern);
+F("lensLight", 0);
+GL.Uniform1(U("frostCount"), 0); var plainPattern = Render(coefficient: 0);
+GL.Uniform1(U("frostCount"), 1);
+GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, 0f);
+var refractedPattern = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size * Size).Any(i => Math.Abs(refractedPattern[i * 4] - plainPattern[i * 4]) > .025f),
+    "GPU frost refracts a patterned background even with reflection unlit");
+GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, 1, 1, 0, PixelFormat.Rgba, PixelType.Float, new[] {0f, 0f, 0f, .7f});
+var unlitIce = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size * Size).All(i => unlitIce[i * 4] == 0), "GPU unlit ice does not paint light onto a black background");
+GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, 1, 1, 0, PixelFormat.Rgba, PixelType.Float, new[] {.2f, .2f, .2f, .7f});
+F("lensLight", 1);
 GL.Uniform1(U("frostCount"), 0);
 F("lensRainStrength", 0);
 
