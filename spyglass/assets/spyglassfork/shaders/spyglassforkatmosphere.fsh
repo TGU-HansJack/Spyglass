@@ -38,16 +38,15 @@ float waterHeight(vec2 p)
         float moving = clamp(drop.w * 6.0, 0.0, 1.0);
         q.y /= 1.0 + moving * 0.65;
         q.x /= clamp(1.0 + q.y * moving * 0.20, 0.65, 1.2);
-        float body = max(0.0, 1.0 - dot(q, q));
-        float silhouette = floor(body * body * 5.0 + 0.5) / 5.0;
-        height = max(height, silhouette);
+        float body = smoothstep(1.0, 0.38, dot(q, q));
+        height = max(height, body);
     }
     for (int i = 0; i < rainBeadCount; i++)
     {
         vec4 bead = rainBeads[i];
         vec2 q = (p - bead.xy) / max(bead.z, 0.001);
         float body = max(0.0, 1.0 - dot(q, q));
-        height = max(height, floor(body * body * 5.0 + 0.5) / 5.0);
+        height = max(height, body * bead.w);
     }
     for (int i = 0; i < rainTrailCount; i++)
     {
@@ -60,16 +59,15 @@ float waterHeight(vec2 p)
         float across = max(0.0, 1.0 - abs(p.x - routeX) / max(width, 0.00055));
         float along = smoothstep(path.z - .001, path.z + span * .22, p.y)
             * (1.0 - smoothstep(path.w - span * .22, path.w + .001, p.y));
-        float gap = step(.18, fract(shape.w + t * 3.7));
-        float fleck = max(0.0, across * max(along, 0.0)) * shape.z * gap;
-        height = max(height, floor(fleck * 4.0 + 0.5) / 4.0);
+        float fleck = max(0.0, across * max(along, 0.0)) * shape.z;
+        height = max(height, fleck);
     }
     if (rainPool > 0.0001)
     {
         float top = 1.0 - rainPool * (0.85 + 0.10 * sin(p.x * 23.0) + 0.05 * sin(p.x * 59.0));
         height = max(height, smoothstep(top - 0.003, top + 0.005, p.y) * 0.65);
     }
-    return floor(height * 5.0 + 0.5) / 5.0;
+    return clamp(height, 0.0, 1.0);
 }
 
 float hueChannel(float lo, float hi, float h)
