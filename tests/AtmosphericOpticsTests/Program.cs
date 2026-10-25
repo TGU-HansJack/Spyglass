@@ -307,11 +307,13 @@ GL.Uniform4(U("frostDetails"), 0f, .35f, .4f, (float)testFacets);
 var growing = Render(coefficient: 0);
 GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, (float)testFacets);
 var grown = Render(coefficient: 0);
-int Coverage(float[] px) => Enumerable.Range(0, Size * Size).Count(i => px[i * 4] > .205f);
+// Transmission reveals both brighter and darker refracted facets. A test
+// that counts only white pixels would reward repainting transparent ice white.
+int Coverage(float[] px) => Enumerable.Range(0, Size * Size).Count(i => Math.Abs(px[i * 4] - .2f) > .001f);
 Check(Coverage(grown) > Coverage(growing) && Coverage(growing) > 0, "GPU frost branches grow inward instead of fading in all at once");
-int farthest = Enumerable.Range(0, Size * Size).Where(i => grown[i * 4] > .205f).Max(i => i % Size);
+int farthest = Enumerable.Range(0, Size * Size).Where(i => Math.Abs(grown[i * 4] - .2f) > .001f).Max(i => i % Size);
 Check(farthest >= Size / 6, "GPU frost patch visibly spans at least a sixth of the lens");
-Check(grown.Where((_, i) => i % 4 == 0).Max() > .205f, "GPU microfacets catch light along ice ridges");
+Check(grown.Where((_, i) => i % 4 == 0).Min() < .199f, "GPU transparent ice has a curved thickness profile rather than white paint");
 Check(grown.Where((_, i) => i % 4 == 0).Max() < .50f, "GPU ice transmits most scene color rather than a white painted texture");
 Check(Coverage(grown) < Size * Size / 10, "GPU frost has transparent gaps and does not create an opaque sheet");
 Near(Pixel(grown, 40, 32), .2f, "GPU edge frost leaves the center view clear");
@@ -344,6 +346,31 @@ UploadWater(patternBead); F("lensRainStrength", 1);
 var beadPattern = Render(coefficient: 0);
 Check(Enumerable.Range(0, Size * Size).Any(i => Math.Abs(beadPattern[i * 4] - plainPattern[i * 4]) > .08f),
     "GPU optical bead actually magnifies or displaces background detail");
+// The rounded height response from v0.7.7 must survive the sky-visibility
+// correction. Compare an interior point against the old profile on flat gray:
+// evaluate its original expression including the finite-difference normal at
+// this deliberately low test resolution, without a contact ring replacing it.
+GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, 1, 1, 0, PixelFormat.Rgba, PixelType.Float, new[] {.2f, .2f, .2f, .7f});
+F("lensLight", 1);
+var originalResponse = Render(coefficient: 0);
+var legacyDrop = patternBead.Drops[0];
+float LegacyHeight(float x, float y)
+{
+    float qx = (x - legacyDrop.X) / legacyDrop.Radius;
+    float qy = (y - legacyDrop.Y) / legacyDrop.Radius / legacyDrop.Shape;
+    float body = Math.Max(0, 1 - qx * qx - qy * qy);
+    return body * body * legacyDrop.Fade;
+}
+float legacyCenter = LegacyHeight(.5f, .5f);
+float legacyNx = (LegacyHeight(.5f + 1f / Size, .5f) - legacyCenter) * Size / 128f;
+float legacyNy = (LegacyHeight(.5f, .5f - 1f / Size) - legacyCenter) * Size / 128f;
+float legacyShade = Math.Clamp(MathF.Sqrt(legacyNx * legacyNx + legacyNy * legacyNy) * .18f, 0, .055f);
+float legacyLight = Math.Clamp((-legacyNx + legacyNy) * .14f, 0, .045f);
+Near(Pixel(originalResponse), .2f * (1 + legacyLight - legacyShade - legacyCenter * .055f),
+    "GPU bead center matches original thickness, normal and transmission expression", .0001);
+Check(Pixel(originalResponse) > .175f, "GPU bead interior retains transmission instead of a dark contact-ring fill");
+GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, Size, Size, 0, PixelFormat.Rgba, PixelType.Float, pattern);
+F("lensLight", 0);
 patternBead.Clear(); UploadWater(patternBead);
 UploadWater(deterministicIce);
 GL.Uniform1(U("frostCount"), 1);
@@ -376,7 +403,9 @@ foreach (float background in new[] { .82f, .95f, 1f })
     Check(Enumerable.Range(0, Size * Size).Any(i => skyBead[i * 4] < background - .08f),
         $"GPU bead contact rim remains visible on uniform bright sky {background}");
     var sunlitBead = Render(float.PositiveInfinity, coefficient: 0, glare: .2f);
-    Check(Enumerable.Range(0, Size * Size).Any(i => sunlitBead[i * 4] < background - .06f),
+    brightBead.Clear(); UploadWater(brightBead);
+    var plainSunlit = Render(float.PositiveInfinity, coefficient: 0, glare: .2f);
+    Check(Enumerable.Range(0, Size * Size).Any(i => plainSunlit[i * 4] - sunlitBead[i * 4] > .045f),
         $"GPU solar glare does not wash out bead contrast on sky {background}");
     Near(Pixel(skyBead, 2, 2), background, "GPU bead rim does not tint the surrounding bright sky");
     Near(skyBead[(32 * Size + 32) * 4 + 3], .7f, "GPU bright-sky bead preserves scene alpha");
@@ -385,7 +414,7 @@ foreach (float background in new[] { .82f, .95f, 1f })
     GL.Uniform4(U("frostCrystals"), .012f, .5f, .38f, 1f);
     GL.Uniform4(U("frostDetails"), 0f, 1f, .4f, (float)testFacets);
     var skyIce = Render(float.PositiveInfinity, coefficient: 0, glare: .2f);
-    Check(Enumerable.Range(0, Size * Size).Count(i => skyIce[i * 4] < background - .025f) >= 8,
+    Check(Enumerable.Range(0, Size * Size).Count(i => plainSunlit[i * 4] - skyIce[i * 4] > .015f) >= 8,
         $"GPU feathered ice has visible dark facet boundaries on bright sky {background}");
     Check(Enumerable.Range(0, Size * Size).All(i => skyIce[i * 4] >= background * .50f),
         "GPU frost retains transmission on a bright uniform background");

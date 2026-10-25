@@ -28,8 +28,8 @@ uniform float flickProgress;
 in vec2 texCoord;
 layout(location = 0) out vec4 outColor;
 
-// Analytic dome normals stay visible against a uniform sky, where sampling
-// scene detail alone cannot reveal a lens. zw hold coverage and the contact rim.
+// Restore the original rounded height profile: optical transmission is
+// driven by thickness gradients, not a drawn contact ring. zw: height, thin rim.
 vec4 beadSurface(vec2 p)
 {
     vec4 surface = vec4(0.0);
@@ -39,17 +39,19 @@ vec4 beadSurface(vec2 p)
         vec2 q = (p - bead.xy) / max(bead.z, 0.001);
         q.y /= rainDropShapes[i].x;
         float r2 = dot(q, q);
-        if (r2 >= 1.0) continue;
-        float coverage = (1.0 - smoothstep(0.88, 1.0, r2)) * bead.w;
-        float rim = smoothstep(0.36, 0.76, r2) * coverage;
-        if (coverage > surface.z)
-        {
-            vec2 normal = q / max(0.38, sqrt(max(0.0, 1.0 - r2)));
-            normal.y = -normal.y; // lens-local Y points down, texture Y points up
-            surface = vec4(normal * bead.w, coverage, rim);
-        }
+        float body = max(0.0, 1.0 - r2);
+        float thickness = body * body * bead.w;
+        surface.z = max(surface.z, thickness);
+        float contact = smoothstep(0.72, 0.88, r2) * (1.0 - smoothstep(0.94, 1.0, r2));
+        surface.w = max(surface.w, contact * bead.w);
     }
     return surface;
+}
+
+// Shared water/ice lens response, matching the pre-v0.7.8 bead optics.
+vec2 transmissionNormal(float thickness, vec2 physicalSize)
+{
+    return vec2(dFdx(thickness), dFdy(thickness)) * physicalSize / 128.0;
 }
 
 // Each tapered crystal is actual analytic prism geometry with a triangular
@@ -91,7 +93,9 @@ vec4 proceduralFrost(vec2 p, vec4 crystal, vec4 detail, int patchIndex, vec2 pix
         // not vanish or alias as the display size changes.
         coverage *= clamp(width / max(aa, 0.0001), 0.0, 1.0) * crystal.w;
         float ridge = exp(-abs(lateral) / max(width * 0.28, aa)) * coverage;
-        float score = coverage * shape.y;
+        float across = clamp(1.0 - abs(lateral) / max(width + aa, 0.0001), 0.0, 1.0);
+        float roundedThickness = across * across * coverage * shape.y;
+        float score = roundedThickness;
         if (score > strongest)
         {
             float slope = lateral / sqrt(lateral * lateral + aa * aa);
@@ -167,16 +171,17 @@ void main()
         frost.zw = max(frost.zw, patch.zw);
     }
     if (!onLens) frost = vec4(0.0);
-    vec2 iceNormal = frost.xy;
-    vec2 iceShift = clamp(iceNormal * 3.8, vec2(-2.5), vec2(2.5));
-    vec2 beadShift = clamp(bead.xy * 2.0 * lensRainStrength, vec2(-4.0), vec2(4.0));
-    vec2 refractedUv = clamp(texCoord + (beadShift + iceShift) / frameSize,
+    vec2 physicalSize = aperture.zw * frameSize;
+    vec2 beadNormal = transmissionNormal(bead.z, physicalSize);
+    vec2 iceNormal = transmissionNormal(frost.z, physicalSize);
+    vec2 beadShift = beadNormal * lensRainStrength * 0.012;
+    vec2 iceShift = iceNormal * 0.012;
+    // Only bound exceptionally steep subpixel ice slopes. Water retains its
+    // original lens-like displacement, including radius-dependent magnification.
+    iceShift = clamp(iceShift, -vec2(8.0) / frameSize, vec2(8.0) / frameSize);
+    vec2 refractedUv = clamp(texCoord + beadShift + iceShift,
         aperture.xy + 0.5 / frameSize, farEdge - 0.5 / frameSize);
     vec3 color = texture(sceneTexture, refractedUv).rgb;
-    vec2 roughness = vec2(1.1) / frameSize;
-    vec3 roughScene = (texture(sceneTexture, clamp(refractedUv + roughness, aperture.xy, farEdge)).rgb
-        + texture(sceneTexture, clamp(refractedUv - roughness, aperture.xy, farEdge)).rgb) * 0.5;
-    color = mix(color, roughScene, frost.z * 0.16);
     float depth = texture(depthTexture, texCoord).r;
     vec4 view = inverseProjection * vec4(texCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     // A cleared depth represents the sky, which keeps the engine's existing fog.
@@ -200,32 +205,33 @@ void main()
     color = mix(color, gradeAir(vec3(1.0, 0.97, 0.90)), clamp(halo, 0.0, 0.20));
     float illumination = clamp(lensLight, 0.0, 1.0);
     float luminance = dot(color, vec3(0.299, 0.587, 0.114));
-    float skyBrightness = smoothstep(0.35, 0.95, luminance);
     vec2 sunDelta = (sunScreen - texCoord) * frameSize;
     vec2 incidentLight = glareStrength > 0.001 && length(sunDelta) > 1.0
         ? normalize(sunDelta) : normalize(vec2(-0.6, 0.8));
     if (bead.z > 0.0)
     {
-        vec2 n = bead.xy;
-        // At a grazing angle the water contact reflects darker surroundings.
-        // Paired dark/light contours survive bright fog where white highlights
-        // and refraction of a constant color would otherwise disappear.
-        float grazing = clamp(length(n) / 2.2, 0.0, 1.0);
-        float darkRim = bead.w * (0.22 + skyBrightness * 0.30) * illumination;
-        float refractiveBody = bead.z * (0.016 + grazing * 0.012);
-        color *= 1.0 - clamp((darkRim + refractiveBody) * lensRainStrength, 0.0, 0.62);
-        float facing = max(0.0, dot(normalize(n + vec2(0.00001)), incidentLight));
-        float glint = pow(facing, 9.0) * bead.w * 0.50 * illumination;
-        color = mix(color, vec3(0.96, 0.98, 1.0), clamp(glint * lensRainStrength, 0.0, 0.65));
+        // The original water transmission shading is kept verbatim.
+        float edgeShade = clamp(length(beadNormal) * 0.18, 0.0, 0.055);
+        float highlight = clamp((-beadNormal.x + beadNormal.y) * 0.14, 0.0, 0.045) * illumination;
+        color *= 1.0 + (highlight - edgeShade - bead.z * 0.055) * lensRainStrength;
+        // A thin supplemental rim only on bright sky; do not replace the dome
+        // with the broad, dark circles introduced by the visibility correction.
+        float brightRim = bead.w * smoothstep(0.60, 0.95, luminance) * illumination;
+        color *= 1.0 - brightRim * 0.28 * lensRainStrength;
     }
-    // Ice ridges need both reflected light and a darker refractive boundary:
-    // a white-only reflection cannot stand out against sunlit white clouds.
-    float iceEdge = clamp(length(iceNormal), 0.0, 1.0);
-    float iceContour = frost.z * (0.08 + skyBrightness * 0.23) + iceEdge * 0.18;
-    color *= 1.0 - clamp(iceContour * illumination, 0.0, 0.46);
-    float facetFacing = max(0.0, dot(iceNormal, incidentLight));
-    float iceReflection = (frost.w * 0.16 + pow(facetFacing, 2.0) * 0.42) * illumination;
-    color = mix(color, gradeAir(vec3(0.92, 0.98, 1.0)), clamp(iceReflection, 0.0, 0.60));
+    if (frost.z > 0.0)
+    {
+        // Ice uses the same curved thickness -> normal -> transmitted scene
+        // chain as water. Its geometry is still an asymmetric feathered crystal.
+        float edgeShade = clamp(length(iceNormal) * 0.18, 0.0, 0.055);
+        float highlight = clamp((-iceNormal.x + iceNormal.y) * 0.14, 0.0, 0.045) * illumination;
+        color *= 1.0 + highlight - edgeShade - frost.z * 0.055;
+        float brightEdge = smoothstep(0.60, 0.95, luminance) * illumination;
+        float crystalBoundary = clamp(length(iceNormal) * 0.6, 0.0, 0.28) * frost.z;
+        color *= 1.0 - crystalBoundary * brightEdge;
+        float facetReflection = pow(max(0.0, dot(frost.xy, incidentLight)), 2.0) * 0.10 * illumination;
+        color = mix(color, gradeAir(vec3(0.92, 0.98, 1.0)), facetReflection);
+    }
     if (flickProgress < 1.0)
     {
         // lensPoint uses top-left origin after the screen UV Y flip.

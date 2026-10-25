@@ -131,7 +131,7 @@ internal static class OpticsPreview
         for (int tick = 0; tick < 600; tick++) denseBeads.Update(1f / 60, 1);
         var completeFrost = new LensRainModel();
         for (int tick = 0; tick < 2400; tick++) completeFrost.Update(1f / 60, 0, true);
-        foreach (string background in new[] { "foliage", "fog", "sky", "sun" })
+        foreach (string background in new[] { "foliage", "fog", "sky", "sun", "chart" })
         {
             var backdrop = new byte[size * size * 4];
             if (background == "foliage") Array.Copy(input, backdrop, input.Length);
@@ -144,6 +144,13 @@ internal static class OpticsPreview
                 backdrop[j + 1] = (byte)(Math.Min(1, baseValue + (background == "sky" ? .045f : .01f)) * 255);
                 backdrop[j + 2] = (byte)(Math.Min(1, baseValue + (background == "sky" ? .10f : .02f)) * 255);
                 backdrop[j + 3] = 255;
+                if (background == "chart")
+                {
+                    bool line = (x - origin) % 18 < 2 || (y - origin) % 18 < 2;
+                    backdrop[j] = (byte)(line ? 55 : 194);
+                    backdrop[j + 1] = (byte)(line ? 75 : 214);
+                    backdrop[j + 2] = (byte)(line ? 85 : 224);
+                }
             }
             GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, scene);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, size, size, 0, PixelFormat.Rgba, PixelType.UnsignedByte, backdrop);

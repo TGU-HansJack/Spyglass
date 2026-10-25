@@ -45,22 +45,22 @@ for index in range(90):
     draw.text((16, 7), "霜纹从镜片边缘生长 · 离屏预览", font=font, fill="white")
     draw.text((16, 32), f"生长时间：{index / 10:.1f} 秒", font=font, fill=(160, 200, 225))
     frost_frames.append(frame)
-frost_frames[-1].save(overlays / "procedural-frost-v078.png")
-frost_frames[0].save(overlays / "procedural-frost-growth-v078.gif", save_all=True, append_images=frost_frames[1:], duration=100, loop=0)
+frost_frames[-1].save(overlays / "transmitted-frost-v079.png")
+frost_frames[0].save(overlays / "transmitted-frost-growth-v079.gif", save_all=True, append_images=frost_frames[1:], duration=100, loop=0)
 print(overlays / "glass-comparison.png")
 print(overlays / "lens-beads.gif")
-print(overlays / "procedural-frost-v078.png")
-print(overlays / "procedural-frost-growth-v078.gif")
+print(overlays / "transmitted-frost-v079.png")
+print(overlays / "transmitted-frost-growth-v079.gif")
 
-visibility = Image.new("RGB", (1100, 1518), (25, 25, 25))
+visibility = Image.new("RGB", (1100, 1883), (25, 25, 25))
 draw = ImageDraw.Draw(visibility)
 draw.text((16, 10), "亮背景可见度 · 实际 GLSL 离屏输出（非实机截图）", font=font, fill="white")
-for row, (background, title) in enumerate([("foliage", "树叶"), ("fog", "亮雾"), ("sky", "天空"), ("sun", "太阳眩光 / 接近纯白")]):
+for row, (background, title) in enumerate([("foliage", "树叶"), ("fog", "亮雾"), ("sky", "天空"), ("sun", "太阳眩光 / 接近纯白"), ("chart", "线条背景 / 折射对照")]):
     for col, (effect, label) in enumerate([("clear", "无表面效果"), ("beads", "密集静止水珠"), ("ice", "透光冰层")]):
         raw = Image.open(optics / f"visibility-{background}-{effect}.ppm").convert("RGBA")
         image = Image.alpha_composite(raw, overlay).resize((350, 350))
         x, y = col * 365 + 10, row * 365 + 55
         visibility.paste(image, (x, y))
         draw.text((x, y - 24), title + " / " + label, font=font, fill="white")
-visibility.save(overlays / "surface-bright-backgrounds-v078.png")
-print(overlays / "surface-bright-backgrounds-v078.png")
+visibility.save(overlays / "surface-transmission-v079.png")
+print(overlays / "surface-transmission-v079.png")
