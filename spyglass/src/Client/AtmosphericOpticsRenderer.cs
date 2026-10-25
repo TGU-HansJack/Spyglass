@@ -27,6 +27,7 @@ namespace spyglass.src.Client
         private string rainLens;
         private float flickProgress = 1f;
         private int flickPasses;
+        private bool frostConditions;
 
         public double RenderOrder => 0.5;
         public int RenderRange => 999;
@@ -81,6 +82,7 @@ namespace spyglass.src.Client
             lastWeatherSample = now;
             targetExtinction = 0;
             targetLensRain = 0;
+            frostConditions = false;
             weather ??= capi.ModLoader.GetModSystem<WeatherSystemClient>();
             if (weather == null || !weather.haveLevelFinalize || !weather.playerChunkLoaded) return;
             var data = weather.BlendedWeatherData;
@@ -94,6 +96,7 @@ namespace spyglass.src.Client
                 _ => OpticsPrecipitation.Rain
             };
             kind = AtmosphericOpticsModel.ResolvePrecipitation(kind, climate.Temperature, data.snowThresholdTemp);
+            frostConditions = kind == OpticsPrecipitation.Snow || climate.Temperature < -5f;
             // This is the same physical rainfall used by the game's weather particles,
             // before particle-quality settings or shelter suppress particle spawning.
             float rainfall = Math.Max(0, climate.Rainfall - (float)Math.Max(0,
@@ -153,14 +156,15 @@ namespace spyglass.src.Client
             float fade = AtmosphericOpticsModel.Unit(ClientManipulation.getPercentZoomed());
             if (capi.World?.Player?.Entity == null) return;
             var render = capi.Render;
-            if (render.ShaderUniforms.CameraUnderwater > 0) { rain.Clear(); return; }
+            if (render.ShaderUniforms.CameraUnderwater > 0) { rain.Clear(); frostConditions = false; return; }
             SampleWeather();
             string lens = ClientManipulation.GetHeldSpyglassMaterial() + ":" + ClientManipulation.GetHeldLensGlass();
             if (lens != rainLens) { rain.Clear(); rainLens = lens; }
             float rainStrength = SpyglassMod.config.enableLensRain
                 ? AtmosphericOpticsModel.Strength(SpyglassMod.config.lensRainStrength) : 0;
-            if (rainStrength <= 0) rain.Clear();
-            else rain.Update(deltaTime, fade > .01f ? targetLensRain : 0);
+            frostConditions &= SpyglassMod.config.enableLensRain;
+            if (rainStrength <= 0 && !frostConditions) rain.Clear();
+            else rain.Update(deltaTime, rainStrength > 0 && fade > .01f ? targetLensRain : 0, frostConditions);
             if (flickPasses > 0)
             {
                 flickProgress += Math.Max(0, deltaTime) / .38f;
@@ -246,9 +250,11 @@ namespace spyglass.src.Client
                 shader.Uniform("lensLight", ClientManipulation.GetLensLightLevel());
                 shader.Uniform("rainDropCount", rain.Drops.Count);
                 shader.Uniform("rainBeadCount", rain.Beads.Count);
+                shader.Uniform("frostCount", rain.Crystals.Count);
                 shader.Uniform("rainTrailCount", rain.Trails.Count);
                 shader.Uniforms4("rainDrops", LensRainModel.MaxDrops, rain.DropUniforms);
                 shader.Uniforms4("rainBeads", LensRainModel.MaxDrops, rain.BeadUniforms);
+                shader.Uniforms4("frostCrystals", LensRainModel.MaxFrost, rain.FrostUniforms);
                 shader.Uniforms4("rainTrails", LensRainModel.MaxTrails * 2, rain.TrailUniforms);
                 shader.Uniform("rainPool", rain.Pool);
                 shader.Uniform("flickProgress", flickProgress);

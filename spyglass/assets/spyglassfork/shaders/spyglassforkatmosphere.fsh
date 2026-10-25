@@ -20,6 +20,8 @@ uniform int rainBeadCount;
 uniform int rainTrailCount;
 uniform vec4 rainDrops[32];
 uniform vec4 rainBeads[32];
+uniform int frostCount;
+uniform vec4 frostCrystals[2];
 uniform vec4 rainTrails[192];
 uniform float rainPool;
 uniform vec2 rainInset;
@@ -35,9 +37,8 @@ float waterHeight(vec2 p)
     {
         vec4 drop = rainDrops[i];
         vec2 q = (p - drop.xy) / max(drop.z, 0.001);
-        float moving = clamp(drop.w * 6.0, 0.0, 1.0);
-        q.y /= 1.0 + moving * 0.65;
-        q.x /= clamp(1.0 + q.y * moving * 0.20, 0.65, 1.2);
+        q.y /= max(drop.w, 0.8);
+        q.x /= clamp(1.0 + q.y * clamp(drop.w - 1.0, 0.0, 0.2) * 0.20, 0.65, 1.2);
         float body = smoothstep(1.0, 0.38, dot(q, q));
         height = max(height, body);
     }
@@ -64,10 +65,44 @@ float waterHeight(vec2 p)
     }
     if (rainPool > 0.0001)
     {
-        float top = 1.0 - rainPool * (0.85 + 0.10 * sin(p.x * 23.0) + 0.05 * sin(p.x * 59.0));
-        height = max(height, smoothstep(top - 0.003, top + 0.005, p.y) * 0.65);
+        float top = 1.0 - rainPool;
+        height = max(height, smoothstep(top - 0.0015, top + 0.0015, p.y) * 0.72);
     }
     return clamp(height, 0.0, 1.0);
+}
+
+float segmentCoverage(vec2 p, vec2 a, vec2 b, float radius)
+{
+    vec2 ab = b - a;
+    float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 0.00001), 0.0, 1.0);
+    return 1.0 - smoothstep(radius * 0.65, radius * 1.35, length(p - (a + ab * t)));
+}
+
+float frostCrystal(vec2 p, vec4 crystal)
+{
+    vec2 d = p - crystal.xy;
+    float pixel = max(crystal.z / 13.0, 0.0011);
+    d = floor(d / pixel + 0.5) * pixel;
+    float radius = crystal.z;
+    float lineWidth = pixel * 1.15;
+    float frost = 0.0;
+    for (int arm = 0; arm < 6; arm++)
+    {
+        float angle = float(arm) * 1.04719755;
+        vec2 axis = vec2(cos(angle), sin(angle));
+        vec2 tip = axis * radius;
+        frost = max(frost, segmentCoverage(d, vec2(0.0), tip, lineWidth));
+        for (int branch = 1; branch <= 2; branch++)
+        {
+            float along = radius * (branch == 1 ? 0.42 : 0.67);
+            vec2 root = axis * along;
+            float branchLength = radius * (branch == 1 ? 0.25 : 0.18);
+            vec2 normal = vec2(-axis.y, axis.x);
+            frost = max(frost, segmentCoverage(d, root, root + (axis + normal) * branchLength * 0.7071, lineWidth));
+            frost = max(frost, segmentCoverage(d, root, root + (axis - normal) * branchLength * 0.7071, lineWidth));
+        }
+    }
+    return frost * crystal.w;
 }
 
 float hueChannel(float lo, float hi, float h)
@@ -153,6 +188,9 @@ void main()
         float shadeStep = floor(clamp(highlight - edgeShade - water * 0.09, -0.12, 0.045) * 16.0 + 0.5) / 16.0;
         color *= 1.0 + shadeStep * lensRainStrength;
     }
+    float frost = 0.0;
+    for (int i = 0; i < frostCount; i++) frost = max(frost, frostCrystal(lensPoint, frostCrystals[i]));
+    color = mix(color, vec3(0.80, 0.88, 0.93), frost * 0.42);
     if (flickProgress < 1.0)
     {
         // lensPoint.y is inverted above: 0,1 is top-left and 1,0 is

@@ -81,7 +81,7 @@ foreach (var (fov, near, far) in new[] { (1.2, .1, 2048d), (.12, .01, 1024d), (.
 Check(!AtmosphericOpticsModel.InvertProjection(new double[16], new float[16]), "singular projection rejected");
 
 var merging = new LensRainModel();
-merging.AddDrop(.5f, .3f, .012f); merging.AddDrop(.51f, .3f, .012f);
+merging.AddDrop(.5f, .3f, .019f); merging.AddDrop(.51f, .3f, .019f);
 merging.Update(1f / 60, 0);
 Check(merging.Drops.Count == 1 && merging.Drops[0].Radius > .016f, "touching beads merge into a larger drop");
 Check(merging.Drops[0].Radius <= .028f, "merged drops stay below the visual size cap");
@@ -93,16 +93,44 @@ Check(merging.Trails.Any(t => t.WidthTop > 0 && t.WidthTop < .02f && t.WidthBott
 Check(merging.Trails.All(t => float.IsFinite(t.X)),
     "water trails and beads remain vertically aligned");
 Check(merging.Trails.Any(t => t.Fade > .8f), "water falls continuously and tracks remain visible");
+var classes = new LensRainModel();
+classes.AddDrop(.25f, .2f, .008f); classes.AddDrop(.5f, .2f, .014f); classes.AddDrop(.75f, .2f, .021f);
+Check(classes.Drops[0].Kind == LensRainModel.DropKind.Small && !classes.Drops[0].MayRoll, "small drops stay as round beads");
+Check(classes.Drops[1].Kind == LensRainModel.DropKind.Medium, "medium drops use the middle size class");
+Check(classes.Drops[2].Kind == LensRainModel.DropKind.Large && classes.Drops[2].MayRoll, "large drops roll and leave a short trail");
+Check(classes.Drops[2].Shape > classes.Drops[1].Shape, "large drops have a round-headed elongated silhouette");
+var mediumSamples = new LensRainModel();
+for (int i = 0; i < 12; i++) mediumSamples.AddDrop(.04f + i * .08f, .2f, .014f);
+Check(mediumSamples.Drops.Count(d => d.MayRoll) < 8,
+    "only a minority of medium drops roll");
+var parked = new LensRainModel();
+parked.AddDrop(.25f, .2f, .008f); parked.AddDrop(.75f, .2f, .014f);
+float smallY = parked.Drops[0].Y;
+for (int i = 0; i < 120; i++) parked.Update(1f / 60, 0);
+Check(parked.Drops.Any(d => d.Kind == LensRainModel.DropKind.Small && Math.Abs(d.Y - smallY) < .001f), "small drops remain on the glass");
+Check(mediumSamples.Drops.Any(d => d.Kind == LensRainModel.DropKind.Medium && !d.MayRoll), "non-rolling medium drops remain on the glass");
+var poolLink = new LensRainModel();
+poolLink.AddDrop(.5f, .84f, .022f);
+for (int i = 0; i < 300; i++) poolLink.Update(1f / 60, 0);
+Check(poolLink.Pool > 0 && poolLink.Trails.Any(t => t.Bottom >= 1f - poolLink.Pool - .002f), "bottom pool connects to the rolling drop tail");
 for (int i = 0; i < 600; i++) merging.Update(1f / 60, 0);
 Check(merging.Drained > 0, "runoff reaches the bottom and drains away");
 var wet = new LensRainModel();
 for (int i = 0; i < 1800; i++) wet.Update(1f / 60, 1);
 Check(wet.HasWater && wet.Pool > .005f && wet.Pool <= .055f, "sustained rain accumulates bounded water at the bottom");
-Check(wet.Drops.Count <= LensRainModel.MaxDrops && wet.Beads.Count <= LensRainModel.MaxDrops && wet.Trails.Count <= LensRainModel.MaxTrails, "water simulation has bounded drop, bead and trail counts");
+Check(wet.Drops.Count <= LensRainModel.MaxDrops && wet.Beads.Count <= LensRainModel.MaxBeads && wet.Trails.Count <= LensRainModel.MaxTrails, "water simulation has bounded drop, bead and trail counts");
 wet.Update(1f / 60, 0);
 Check(wet.HasWater, "entering shelter stops new rain without erasing existing water");
 for (int i = 0; i < 18000; i++) wet.Update(1f / 60, 0);
 Check(!wet.HasWater, "sheltered lens dries after runoff and evaporation");
+var frost = new LensRainModel();
+for (int i = 0; i < 1200; i++) frost.Update(1f / 60, 0, true);
+Check(frost.Crystals.Count is > 0 and <= LensRainModel.MaxFrost, "cold or snowy weather has a chance to create one or two frost crystals");
+for (int i = 0; i < 900; i++) frost.Update(1f / 60, 0, false);
+Check(frost.Crystals.Count == 0, "frost fades after warming");
+var warm = new LensRainModel();
+for (int i = 0; i < 600; i++) warm.Update(1f / 60, 0, false);
+Check(warm.Crystals.Count == 0, "warm clear glass stays frost-free");
 var rate30 = new LensRainModel(); var rate60 = new LensRainModel();
 for (int i = 0; i < 600; i++) rate30.Update(1f / 30, 1);
 for (int i = 0; i < 1200; i++) rate60.Update(1f / 60, 1);
@@ -170,6 +198,7 @@ GL.Uniform3(U("fogColor"), .8f, .8f, .8f);
 GL.Uniform4(U("colorGrade"), 1f, 1f, 1f, 0f); F("sepia", 0);
 GL.Uniform2(U("sunScreen"), .5f, .5f); GL.Uniform3(U("sunViewDirection"), 0f, 0f, -1f);
 F("flickProgress", 1);
+GL.Uniform1(U("frostCount"), 0);
 var projection = Projection(1.2, .1, 4096);
 GL.UniformMatrix4(U("inverseProjection"), 1, false, Inverse(projection));
 void Depth(float distance)
@@ -230,8 +259,12 @@ waterModel.Update(1f / 60, 0);
 void UploadWater(LensRainModel model)
 {
     GL.Uniform1(U("rainDropCount"), model.Drops.Count);
+    GL.Uniform1(U("rainBeadCount"), model.Beads.Count);
     GL.Uniform1(U("rainTrailCount"), model.Trails.Count);
+    GL.Uniform1(U("frostCount"), model.Crystals.Count);
     GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, model.DropUniforms);
+    GL.Uniform4(U("rainBeads"), LensRainModel.MaxBeads, model.BeadUniforms);
+    GL.Uniform4(U("frostCrystals"), LensRainModel.MaxFrost, model.FrostUniforms);
     GL.Uniform4(U("rainTrails"), LensRainModel.MaxTrails * 2, model.TrailUniforms);
     F("rainPool", model.Pool);
 }
@@ -239,6 +272,12 @@ F("lensRainStrength", 1); F("lensLight", 1);
 UploadWater(waterModel);
 var beads = Render(coefficient: 0);
 Check(Pixel(beads) < .2f, "GPU water beads have filled centers rather than hollow rings");
+var frostModel = new LensRainModel();
+for (int i = 0; i < 2400; i++) frostModel.Update(1f / 60, 0, true);
+UploadWater(frostModel);
+var frostPixels = Render(coefficient: 0);
+Check(frostModel.Crystals.Count > 0 && frostPixels.Any(v => v > .2f), "GPU renders sparse crystalline frost");
+frostModel.Clear(); UploadWater(frostModel);
 Near(Pixel(beads, 2, 2), .2, "GPU dry glass outside the bead is unchanged");
 for (int i = 0; i < 30; i++) waterModel.Update(1f / 60, 0);
 UploadWater(waterModel);

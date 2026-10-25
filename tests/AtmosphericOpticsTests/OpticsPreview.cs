@@ -48,6 +48,7 @@ internal static class OpticsPreview
         GL.Uniform4(U("colorGrade"), 1f, 1f, 1f, 0f);
         F("sepia", 0); F("fade", 1); F("dayWeight", 1);
         F("flickProgress", 1);
+        F("frostCount", 0);
         var inverse = new float[16];
         if (!AtmosphericOpticsModel.InvertProjection(projection, inverse)) throw new InvalidOperationException("Preview projection singular.");
         GL.UniformMatrix4(U("inverseProjection"), 1, false, inverse);
@@ -85,9 +86,13 @@ internal static class OpticsPreview
         {
             for (int tick = 0; tick < 6; tick++) water.Update(1f / 60, frame < 45 ? 1 : 0);
             GL.Uniform1(U("rainDropCount"), water.Drops.Count);
+            GL.Uniform1(U("rainBeadCount"), water.Beads.Count);
             GL.Uniform1(U("rainTrailCount"), water.Trails.Count);
+            GL.Uniform1(U("frostCount"), water.Crystals.Count);
             GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, water.DropUniforms);
+            GL.Uniform4(U("rainBeads"), LensRainModel.MaxBeads, water.BeadUniforms);
             GL.Uniform4(U("rainTrails"), LensRainModel.MaxTrails * 2, water.TrailUniforms);
+            GL.Uniform4(U("frostCrystals"), LensRainModel.MaxFrost, water.FrostUniforms);
             F("rainPool", water.Pool);
             GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
             var pixels = new byte[side * side * 3];
@@ -96,7 +101,28 @@ internal static class OpticsPreview
             stream.Write(System.Text.Encoding.ASCII.GetBytes($"P6\n{side} {side}\n255\n"));
             for (int y = side - 1; y >= 0; y--) stream.Write(pixels, y * side * 3, side * 3);
         }
-        if (GL.GetError() != ErrorCode.NoError) throw new InvalidOperationException("Preview OpenGL error.");
+        var frost = new LensRainModel();
+        while (GL.GetError() != ErrorCode.NoError) { }
+        F("rainPool", 0); GL.Uniform1(U("rainDropCount"), 0); GL.Uniform1(U("rainBeadCount"), 0);
+        GL.Uniform1(U("rainTrailCount"), 0); F("lensRainStrength", 0);
+        for (int frame = 0; frame < 90; frame++)
+        {
+            for (int tick = 0; tick < 60; tick++) frost.Update(1f / 60, 0, true);
+            GL.Uniform1(U("frostCount"), frost.Crystals.Count);
+            GL.Uniform4(U("frostCrystals"), LensRainModel.MaxFrost, frost.FrostUniforms);
+            var uniformError = GL.GetError();
+            if (uniformError != ErrorCode.NoError) throw new InvalidOperationException("Frost preview uniform error: " + uniformError);
+            GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
+            var drawError = GL.GetError();
+            if (drawError != ErrorCode.NoError) throw new InvalidOperationException("Frost preview draw error: " + drawError);
+            var pixels = new byte[side * side * 3];
+            GL.ReadPixels(origin, origin, side, side, PixelFormat.Rgb, PixelType.UnsignedByte, pixels);
+            using var stream = File.Create(Path.Combine(directory, $"frost-{frame:D3}.ppm"));
+            stream.Write(System.Text.Encoding.ASCII.GetBytes($"P6\n{side} {side}\n255\n"));
+            for (int y = side - 1; y >= 0; y--) stream.Write(pixels, y * side * 3, side * 3);
+        }
+        var previewError = GL.GetError();
+        if (previewError != ErrorCode.NoError) throw new InvalidOperationException("Preview OpenGL error: " + previewError);
         GL.DeleteFramebuffer(framebuffer);
         GL.DeleteTexture(scene); GL.DeleteTexture(depth); GL.DeleteTexture(output);
         Console.WriteLine("Rendered production shader preview: " + directory);
