@@ -24,8 +24,7 @@ uniform vec2 rainInset;
 in vec2 texCoord;
 layout(location = 0) out vec4 outColor;
 
-// Filled beads and residual streams, in lens coordinates with Y pointing down.
-// Water persists in the CPU model; these are not expanding impact rings.
+// Beads and irregular runoff beads, in lens coordinates with Y pointing down.
 float waterHeight(vec2 p)
 {
     float height = 0.0;
@@ -37,23 +36,23 @@ float waterHeight(vec2 p)
         q.y /= 1.0 + moving * 0.65;
         q.x /= clamp(1.0 + q.y * moving * 0.20, 0.65, 1.2);
         float body = max(0.0, 1.0 - dot(q, q));
-        height = max(height, body * body);
+        float silhouette = floor(body * body * 5.0 + 0.5) / 5.0;
+        height = max(height, silhouette);
     }
     for (int i = 0; i < rainTrailCount; i++)
     {
         vec4 trail = rainTrails[i];
-        float width = 0.0025 + trail.w * 0.002;
-        float across = max(0.0, 1.0 - abs(p.x - trail.x) / width);
-        float ends = smoothstep(trail.y, trail.y + 0.015, p.y)
-            * (1.0 - smoothstep(trail.z - 0.015, trail.z, p.y));
-        height = max(height, across * across * ends * trail.w * 0.32);
+        float across = max(0.0, 1.0 - abs(p.x - trail.x) / max(trail.z, 0.0008));
+        float along = max(0.0, 1.0 - abs(p.y - trail.y) / max(trail.z * 2.8, 0.0012));
+        float fleck = across * along * trail.w;
+        height = max(height, floor(fleck * 4.0 + 0.5) / 4.0);
     }
     if (rainPool > 0.0001)
     {
         float top = 1.0 - rainPool * (0.85 + 0.10 * sin(p.x * 23.0) + 0.05 * sin(p.x * 59.0));
         height = max(height, smoothstep(top - 0.003, top + 0.005, p.y) * 0.65);
     }
-    return height;
+    return floor(height * 5.0 + 0.5) / 5.0;
 }
 
 float hueChannel(float lo, float hi, float h)
@@ -108,7 +107,7 @@ void main()
     float water = lensRainStrength > 0.0 ? waterHeight(lensPoint) : 0.0;
     if (any(lessThan(lensPoint, vec2(0.0))) || any(greaterThan(lensPoint, vec2(1.0)))) water = 0.0;
     vec2 normal = vec2(dFdx(water), dFdy(water)) * aperture.zw * frameSize / 128.0;
-    vec2 refractedUv = clamp(texCoord + normal * lensRainStrength * 0.025,
+    vec2 refractedUv = clamp(texCoord + normal * lensRainStrength * 0.012,
         aperture.xy + 0.5 / frameSize, farEdge - 0.5 / frameSize);
     vec3 color = texture(sceneTexture, refractedUv).rgb;
     float depth = texture(depthTexture, texCoord).r;
@@ -134,9 +133,10 @@ void main()
     color = mix(color, gradeAir(vec3(1.0, 0.97, 0.90)), clamp(halo, 0.0, 0.20));
     if (water > 0.0)
     {
-        float edgeShade = clamp(length(normal) * 0.4, 0.0, 0.12);
-        float highlight = clamp((-normal.x + normal.y) * 0.35, 0.0, 0.16) * clamp(lensLight, 0.0, 1.0);
-        color *= 1.0 + (highlight - edgeShade - water * 0.08) * lensRainStrength;
+        float edgeShade = clamp(length(normal) * 0.18, 0.0, 0.055);
+        float highlight = clamp((-normal.x + normal.y) * 0.14, 0.0, 0.045) * clamp(lensLight, 0.0, 1.0);
+        float shadeStep = floor(clamp(highlight - edgeShade - water * 0.09, -0.12, 0.045) * 16.0 + 0.5) / 16.0;
+        color *= 1.0 + shadeStep * lensRainStrength;
     }
     outColor = vec4(mix(scene.rgb, color, fade), scene.a);
 }

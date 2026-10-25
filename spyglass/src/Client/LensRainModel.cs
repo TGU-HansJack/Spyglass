@@ -7,14 +7,14 @@ namespace spyglass.src.Client
     // keep merging, gravity and drainage independent of render frame rate.
     internal sealed class LensRainModel
     {
-        internal const int MaxDrops = 32, MaxTrails = 24;
+        internal const int MaxDrops = 32, MaxTrails = 48;
         internal sealed class Drop
         {
-            internal float X, Y, Radius, Speed, StartY;
+            internal float X, Y, Radius, Speed, StartY, Drift, LastTrailY, NextTrail;
         }
         internal sealed class Trail
         {
-            internal float X, Top, Bottom, Life;
+            internal float X, Y, Width, Life;
         }
         internal readonly List<Drop> Drops = new();
         internal readonly List<Trail> Trails = new();
@@ -49,7 +49,13 @@ namespace spyglass.src.Client
                 nearest.Radius = MathF.Sqrt(nearest.Radius * nearest.Radius + radius * radius);
                 return;
             }
-            Drops.Add(new Drop { X = Math.Clamp(x, 0, 1), Y = Math.Clamp(y, 0, 1), StartY = Math.Clamp(y, 0, 1), Radius = radius });
+            float startY = Math.Clamp(y, 0, 1);
+            Drops.Add(new Drop
+            {
+                X = Math.Clamp(x, 0, 1), Y = startY, StartY = startY, LastTrailY = startY,
+                Radius = radius, Drift = (float)(random.NextDouble() - .5) * .045f,
+                NextTrail = .012f + (float)random.NextDouble() * .022f
+            });
         }
 
         internal void Update(float dt, float rain)
@@ -72,8 +78,8 @@ namespace spyglass.src.Client
             for (int i = 0; i < Trails.Count; i++)
             {
                 var t = Trails[i]; int j = i * 4;
-                TrailUniforms[j] = t.X; TrailUniforms[j + 1] = t.Top;
-                TrailUniforms[j + 2] = t.Bottom; TrailUniforms[j + 3] = t.Life / 5;
+                TrailUniforms[j] = t.X; TrailUniforms[j + 1] = t.Y;
+                TrailUniforms[j + 2] = t.Width; TrailUniforms[j + 3] = t.Life / 2.5f;
             }
         }
 
@@ -100,6 +106,9 @@ namespace spyglass.src.Client
                     a.X = (a.X * ma + b.X * mb) / (ma + mb);
                     a.Y = (a.Y * ma + b.Y * mb) / (ma + mb);
                     a.StartY = Math.Min(a.StartY, b.StartY);
+                    a.LastTrailY = Math.Min(a.LastTrailY, b.LastTrailY);
+                    a.Drift = (a.Drift * ma + b.Drift * mb) / (ma + mb);
+                    a.NextTrail = Math.Min(a.NextTrail, b.NextTrail);
                     a.Radius = MathF.Sqrt(ma + mb);
                     a.Speed = Math.Max(a.Speed, b.Speed);
                     Drops.RemoveAt(j);
@@ -113,15 +122,19 @@ namespace spyglass.src.Client
                 {
                     d.Speed = Math.Min(.45f, d.Speed + dt * Math.Max(.015f, (d.Radius - .01f) * 8));
                     d.Y += d.Speed * dt;
-                    if (d.Y - d.StartY > .012f)
+                    d.Drift = Math.Clamp(d.Drift + ((float)random.NextDouble() - .5f) * dt * .012f, -.045f, .045f);
+                    d.X = Math.Clamp(d.X + d.Drift * dt * (.35f + d.Speed * 2), .015f, .985f);
+                    if (d.Y - d.LastTrailY >= d.NextTrail)
                     {
-                        var trail = Trails.Find(t => Math.Abs(t.X - d.X) < .006f && Math.Abs(t.Bottom - d.Y) < .04f);
-                        if (trail == null)
-                        {
-                            if (Trails.Count == MaxTrails) Trails.RemoveAt(0);
-                            Trails.Add(new Trail { X = d.X, Top = d.StartY, Bottom = Math.Min(1, d.Y), Life = 5 });
-                        }
-                        else { trail.Bottom = Math.Min(1, d.Y); trail.Life = 5; }
+                        float width = d.Radius * (.18f + (float)random.NextDouble() * .48f);
+                        AddTrail(d.X + d.Drift * .035f, d.Y - d.NextTrail * .35f, width,
+                            .65f + (float)random.NextDouble() * 1.55f);
+                        if (random.NextDouble() < .12 && width > .003f)
+                            AddTrail(d.X - d.Drift * .055f + ((float)random.NextDouble() - .5f) * d.Radius,
+                                d.Y - d.NextTrail * .7f, width * (.24f + (float)random.NextDouble() * .25f),
+                                .35f + (float)random.NextDouble() * .8f);
+                        d.LastTrailY = d.Y;
+                        d.NextTrail = .010f + (float)random.NextDouble() * .027f;
                     }
                 }
                 if (d.Y + d.Radius >= 1 - Pool)
@@ -133,6 +146,12 @@ namespace spyglass.src.Client
             float drainage = Math.Min(Pool, dt * (.0005f + Pool * .08f));
             Pool -= drainage;
             Drained += drainage;
+        }
+
+        private void AddTrail(float x, float y, float width, float life)
+        {
+            if (Trails.Count == MaxTrails) Trails.RemoveAt(0);
+            Trails.Add(new Trail { X = Math.Clamp(x, .005f, .995f), Y = Math.Clamp(y, 0, 1), Width = width, Life = life });
         }
     }
 }

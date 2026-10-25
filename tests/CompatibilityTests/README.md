@@ -16,3 +16,5 @@ This uses actual game assemblies and Harmony with mock APIs and selected uniniti
 For production Cairo lens previews and 90 drawing assertions, put the game's Lib directory on PATH and use `--lens-preview` as the third argument. This loads the actual item and glass textures and writes transparent PNG overlays to `artifacts/lens-preview`; these are isolated overlays, not in-game screenshots. The F4 regression intercepts the drawing helper to check callback routing; it does not simulate a live game frame.
 
 The main runner expands and resolves both production lens recipes with the game recipe API against a mock collectible registry. It checks 121 metal/glass combinations, ingredient rejection, original model texture paths and metal durability entries. Run from the repository root.
+
+The GPU optics runner performs 103 assertions after the irregular runoff update, including variable trail widths and non-fixed water paths.

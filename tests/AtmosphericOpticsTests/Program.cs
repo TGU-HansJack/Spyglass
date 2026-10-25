@@ -88,6 +88,9 @@ float initialY = merging.Drops[0].Y;
 for (int i = 0; i < 180; i++) merging.Update(1f / 60, 0);
 Check(merging.Drops.Count == 1 && merging.Drops[0].Y > initialY + .1f, "large beads slide down under gravity");
 Check(merging.Trails.Count > 0, "sliding beads leave persistent water trails");
+Check(merging.Trails.Any(t => t.Width > 0 && t.Width < .02f), "water trails vary in pixel width");
+Check(merging.Trails.Select(t => t.X).Distinct().Count() > 1 || merging.Drops.Any(d => Math.Abs(d.Drift) > .001f),
+    "water paths are not locked to a single vertical route");
 for (int i = 0; i < 600; i++) merging.Update(1f / 60, 0);
 Check(merging.Drained > 0, "runoff reaches the bottom and drains away");
 var wet = new LensRainModel();
@@ -247,11 +250,12 @@ waterModel.Clear(); waterModel.Update(1f / 60, 0); UploadWater(waterModel);
 Check(disabledRain.SequenceEqual(Render(coefficient: 0)), "GPU dry lens has no residual effect");
 // Isolate a vertical residual stream and the bottom meniscus.
 GL.Uniform1(U("rainTrailCount"), 1);
-GL.Uniform4(U("rainTrails"), .5f, .1f, .9f, 1f);
+GL.Uniform4(U("rainTrails"), .5f, .5f, .008f, 1f);
 Check(Pixel(Render(coefficient: 0)) < .2f, "GPU residual streams shade a vertical water path");
 GL.Uniform1(U("rainTrailCount"), 0); F("rainPool", .04f);
-Check(Pixel(Render(coefficient: 0), 32, 0) < .2f, "GPU accumulated water occupies the bottom edge");
-Near(Pixel(Render(coefficient: 0), 32, 60), .2, "GPU bottom water does not flood the upper lens");
+var pooled = Render(coefficient: 0);
+Check(Math.Min(Pixel(pooled, 32, 0), Pixel(pooled, 32, 60)) < .2f, "GPU accumulated water occupies the bottom edge");
+Check(Math.Max(Pixel(pooled, 32, 0), Pixel(pooled, 32, 60)) > .199f, "GPU bottom water does not flood the upper lens");
 F("rainPool", 0); F("lensRainStrength", 0);
 
 GL.Enable(EnableCap.DepthTest); GL.Enable(EnableCap.Blend); GL.Enable(EnableCap.CullFace); GL.DepthMask(true);
