@@ -1,6 +1,6 @@
 # Spyglass Fork
 
-Vintage Story **1.22.3–1.22.7**，模组 ID：`spyglassfork`，版本：`0.7.1`。
+Vintage Story **1.22.3–1.22.7**，模组 ID：`spyglassfork`，版本：`0.7.2`。
 原作者 **Fuami**，分支维护者 **HansJack**。保留原 MIT 许可证及
 `Copyright (c) 2021 Fuami`；安装包包含完整 [LICENSE](LICENSE) 与 [NOTICE.txt](NOTICE.txt)。
 

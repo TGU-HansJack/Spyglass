@@ -88,6 +88,7 @@ namespace spyglass.src
         {
             instance = this;
             clientApi = api;
+            api.Event.MouseDown += OnMouseDown;
             gameRuntime = 0;
             clientLogic = new ClientManipulation(api);
             api.Network.RegisterChannel(ChannelName)
@@ -105,6 +106,15 @@ namespace spyglass.src
             atmosphericOptics = new AtmosphericOpticsRenderer(api);
             tickListenerId = api.Event.RegisterGameTickListener(OnGameTick, 4);
             setRatioToDefault();
+        }
+
+        private void OnMouseDown(MouseEvent args)
+        {
+            if (args.Button == EnumMouseButton.Right && zoomed && ClientManipulation.CtrlHeld())
+            {
+                FlickLensWater();
+                args.Handled = true;
+            }
         }
 
         public override void StartServerSide(ICoreServerAPI api)
@@ -148,6 +158,7 @@ namespace spyglass.src
             }
             zoomWheel?.Dispose();
             zoomWheel = null;
+            clientApi?.Event.MouseDown -= OnMouseDown;
             clientApi = null;
             base.Dispose();
         }
