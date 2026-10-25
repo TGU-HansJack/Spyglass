@@ -47,6 +47,7 @@ internal static class OpticsPreview
         GL.Uniform3(U("fogColor"), .72f, .77f, .80f);
         GL.Uniform4(U("colorGrade"), 1f, 1f, 1f, 0f);
         F("sepia", 0); F("fade", 1); F("dayWeight", 1);
+        F("flickProgress", 1);
         var inverse = new float[16];
         if (!AtmosphericOpticsModel.InvertProjection(projection, inverse)) throw new InvalidOperationException("Preview projection singular.");
         GL.UniformMatrix4(U("inverseProjection"), 1, false, inverse);

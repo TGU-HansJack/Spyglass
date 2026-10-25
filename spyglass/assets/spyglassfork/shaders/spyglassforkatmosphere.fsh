@@ -21,6 +21,7 @@ uniform vec4 rainDrops[32];
 uniform vec4 rainTrails[96];
 uniform float rainPool;
 uniform vec2 rainInset;
+uniform float flickProgress;
 in vec2 texCoord;
 layout(location = 0) out vec4 outColor;
 
@@ -144,6 +145,12 @@ void main()
         float highlight = clamp((-normal.x + normal.y) * 0.14, 0.0, 0.045) * clamp(lensLight, 0.0, 1.0);
         float shadeStep = floor(clamp(highlight - edgeShade - water * 0.09, -0.12, 0.045) * 16.0 + 0.5) / 16.0;
         color *= 1.0 + shadeStep * lensRainStrength;
+    }
+    if (flickProgress < 1.0)
+    {
+        float sweep = (lensPoint.x + lensPoint.y) * 0.5;
+        float blade = exp(-pow((sweep - flickProgress) / 0.018, 2.0));
+        color = mix(color, gradeAir(vec3(0.84, 0.88, 0.90)), blade * 0.20);
     }
     outColor = vec4(mix(scene.rgb, color, fade), scene.a);
 }

@@ -63,6 +63,9 @@ namespace spyglass.src
                 setRatioToDefault();
         }
 
+        internal static void FlickLensWater() => instance?.atmosphericOptics?.FlickWater();
+        private static SpyglassMod instance;
+
         public override void Start(ICoreAPI api)
         {
             base.Start(api);
@@ -83,6 +86,7 @@ namespace spyglass.src
 
         public override void StartClientSide(ICoreClientAPI api)
         {
+            instance = this;
             clientApi = api;
             gameRuntime = 0;
             clientLogic = new ClientManipulation(api);
@@ -131,6 +135,7 @@ namespace spyglass.src
         {
             atmosphericOptics?.Dispose();
             atmosphericOptics = null;
+            if (instance == this) instance = null;
             if (tickListenerId.HasValue)
             {
                 clientApi.Event.UnregisterGameTickListener(tickListenerId.Value);

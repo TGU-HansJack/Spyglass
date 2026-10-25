@@ -53,7 +53,7 @@ namespace spyglass.src.Client
             Drops.Add(new Drop
             {
                 X = Math.Clamp(x, 0, 1), Y = startY, StartY = startY, LastTrailX = Math.Clamp(x, 0, 1), LastTrailY = startY,
-                Radius = radius, Drift = (float)(random.NextDouble() - .5) * .12f,
+                Radius = radius, Drift = 0,
                 NextTrail = .012f + (float)random.NextDouble() * .022f,
                 Pause = .04f + (float)random.NextDouble() * .20f,
                 Phase = (float)random.NextDouble() * 6.2831855f
@@ -112,7 +112,7 @@ namespace spyglass.src.Client
                     a.StartY = Math.Min(a.StartY, b.StartY);
                     a.LastTrailY = Math.Min(a.LastTrailY, b.LastTrailY);
                     a.LastTrailX = (a.LastTrailX * ma + b.LastTrailX * mb) / (ma + mb);
-                    a.Drift = (a.Drift * ma + b.Drift * mb) / (ma + mb);
+                    a.Drift = 0;
                     a.NextTrail = Math.Min(a.NextTrail, b.NextTrail);
                     a.Pause = Math.Max(a.Pause, b.Pause);
                     a.Radius = MathF.Sqrt(ma + mb);
@@ -124,7 +124,10 @@ namespace spyglass.src.Client
                 var d = Drops[i];
                 d.Radius = Math.Max(0, d.Radius - dt * (rain > 0 ? .00005f : .0006f));
                 if (d.Radius < .002f) { Drops.RemoveAt(i); continue; }
-                if (d.Radius > .014f || d.Speed > 0)
+                // Even small falling drops move vertically; only the tiny beads
+                // deposited on an old track remain parked until another drop
+                // reaches them.
+                if (d.Radius > .0065f || d.Speed > 0)
                 {
                     if (d.Pause > 0)
                     {
@@ -140,17 +143,18 @@ namespace spyglass.src.Client
                         {
                             d.Pause = .025f + (float)random.NextDouble() * .13f;
                             d.Speed *= .35f;
-                            d.Drift = Math.Clamp(d.Drift + ((float)random.NextDouble() - .5f) * .12f, -.14f, .14f);
+                            d.Drift = 0;
                         }
                     }
-                    d.Drift = Math.Clamp(d.Drift + ((float)random.NextDouble() - .5f) * dt * .028f, -.14f, .14f);
-                    d.X = Math.Clamp(d.X + d.Drift * dt * (.75f + d.Speed * 3), .015f, .985f);
+                    d.Drift = 0;
                     if (d.Y - d.LastTrailY >= d.NextTrail && d.Y > d.LastTrailY)
                     {
                         float width = d.Radius * (.18f + (float)random.NextDouble() * .48f);
                         AddTrail(d.LastTrailX, d.LastTrailY, d.X, d.Y, width,
                             width * (.65f + (float)random.NextDouble() * .8f),
                             12f + (float)random.NextDouble() * 18f);
+                        if (random.NextDouble() < .20)
+                            AddDrop(d.LastTrailX, d.LastTrailY, Math.Clamp(width * (.28f + (float)random.NextDouble() * .32f), .0025f, .007f));
                         d.LastTrailY = d.Y;
                         d.LastTrailX = d.X;
                         d.NextTrail = .010f + (float)random.NextDouble() * .027f;

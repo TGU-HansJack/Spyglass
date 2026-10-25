@@ -1,4 +1,10 @@
-# Spyglass Fork 0.6.8 兼容性验证
+# Spyglass Fork 0.6.9 兼容性验证
+
+## 0.6.9 更新
+
+- 水珠和水痕固定竖向，保留停顿、重新启动和合并；轨迹小水滴会停留并参与合并，不再有横向爬行。
+- Ctrl + 右键清除全部镜片水迹，并播放两次左上到右下的甩水扫过动画。
+- 补齐中文镜筒半件和甩水交互文本。
 
 验证日期：2026-10-25。模组 ID：`spyglassfork`。作者：Fuami、HansJack。
 基于 Spyglass 0.6.1，原项目：https://github.com/fuami/Spyglass 。

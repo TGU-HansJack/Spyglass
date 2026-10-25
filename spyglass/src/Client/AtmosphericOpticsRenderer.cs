@@ -25,6 +25,8 @@ namespace spyglass.src.Client
         private float targetLensRain;
         private readonly LensRainModel rain = new();
         private string rainLens;
+        private float flickProgress = 1f;
+        private int flickPasses;
 
         public double RenderOrder => 0.5;
         public int RenderRange => 999;
@@ -123,6 +125,14 @@ namespace spyglass.src.Client
             }
         }
 
+        internal void FlickWater()
+        {
+            if (!rain.HasWater) return;
+            rain.Clear();
+            flickProgress = 0f;
+            flickPasses = 2;
+        }
+
         private void RenderFrame(float deltaTime, EnumRenderStage stage)
         {
             if (stage == EnumRenderStage.AfterOIT)
@@ -151,6 +161,15 @@ namespace spyglass.src.Client
                 ? AtmosphericOpticsModel.Strength(SpyglassMod.config.lensRainStrength) : 0;
             if (rainStrength <= 0) rain.Clear();
             else rain.Update(deltaTime, fade > .01f ? targetLensRain : 0);
+            if (flickPasses > 0)
+            {
+                flickProgress += Math.Max(0, deltaTime) / .38f;
+                if (flickProgress >= 1f)
+                {
+                    flickPasses--;
+                    flickProgress = flickPasses > 0 ? 0f : 1f;
+                }
+            }
             if (fade <= 0.001f) return;
             extinction = AtmosphericOpticsModel.Approach(extinction, targetExtinction, deltaTime);
             float coefficient = SpyglassMod.config.enableAtmosphericOptics
@@ -165,7 +184,7 @@ namespace spyglass.src.Client
             float sunZ = (float)(view[2] * sun.X + view[6] * sun.Y + view[10] * sun.Z);
             float glare = SpyglassMod.config.enableAtmosphericOptics && sunZ < 0 ? AtmosphericOpticsModel.Glare(sun.Y, uniforms.SunSpecularIntensity,
                 ambient.BlendedCloudDensity, ambient.BlendedFogDensity, SpyglassMod.config.sunGlareStrength) : 0;
-            if (coefficient <= 0.000001f && glare <= 0.0001f && !rain.HasWater) return;
+            if (coefficient <= 0.000001f && glare <= 0.0001f && !rain.HasWater && flickProgress >= 1f) return;
             var buffers = render.FrameBuffers;
             var primary = buffers != null && buffers.Count > (int)EnumFrameBuffer.Primary ? buffers[(int)EnumFrameBuffer.Primary] : null;
             if (!sceneReady || primary == null || primary.Disposed || primary.DepthTextureId <= 0
@@ -230,6 +249,7 @@ namespace spyglass.src.Client
                 shader.Uniforms4("rainDrops", LensRainModel.MaxDrops, rain.DropUniforms);
                 shader.Uniforms4("rainTrails", LensRainModel.MaxTrails * 2, rain.TrailUniforms);
                 shader.Uniform("rainPool", rain.Pool);
+                shader.Uniform("flickProgress", flickProgress);
                 float rimInset = config.GetVinetteStyle() == VignetteStyle.none ? 0 : (float)(SpyglassOverlay.MetalWidth * 1.1 / aperture.Width);
                 shader.Uniform("rainInset", Math.Min(.45f, rimInset), Math.Min(.45f, rimInset));
                 shader.Uniform("extinction", coefficient);

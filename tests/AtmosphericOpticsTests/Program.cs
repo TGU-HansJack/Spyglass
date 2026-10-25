@@ -89,8 +89,8 @@ for (int i = 0; i < 180; i++) merging.Update(1f / 60, 0);
 Check(merging.Drops.Count == 1 && merging.Drops[0].Y > initialY + .1f, "large beads slide down under gravity");
 Check(merging.Trails.Count > 0, "sliding beads leave persistent water trails");
 Check(merging.Trails.Any(t => t.WidthTop > 0 && t.WidthTop < .02f && t.WidthBottom != t.WidthTop), "water trails vary in pixel width");
-Check(merging.Trails.Any(t => Math.Abs(t.XBottom - t.XTop) > .0001f) || merging.Drops.Any(d => Math.Abs(d.Drift) > .001f),
-    "water paths are not locked to a single vertical route");
+Check(merging.Trails.All(t => t.XBottom == t.XTop) && merging.Drops.All(d => d.Drift == 0),
+    "water trails and beads remain vertically aligned");
 Check(merging.Drops.Any(d => d.Pause > 0) || merging.Trails.Any(t => t.Life > 8f),
     "water motion includes pauses and irregular trail lifetimes");
 for (int i = 0; i < 600; i++) merging.Update(1f / 60, 0);
@@ -106,7 +106,8 @@ Check(!wet.HasWater, "sheltered lens dries after runoff and evaporation");
 var rate30 = new LensRainModel(); var rate60 = new LensRainModel();
 for (int i = 0; i < 600; i++) rate30.Update(1f / 30, 1);
 for (int i = 0; i < 1200; i++) rate60.Update(1f / 60, 1);
-Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.Pool == rate60.Pool,
+Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.Pool == rate60.Pool
+    && rate30.TrailUniforms.SequenceEqual(rate60.TrailUniforms),
     "fixed-step water simulation agrees at 30 and 60 FPS");
 rate30.Clear(); rate30.Update(1f / 60, 0);
 Check(!rate30.HasWater && rate30.DropUniforms.All(v => v == 0), "lens reset clears water and uploaded drop data");
@@ -168,6 +169,7 @@ GL.Uniform2(U("frameSize"), (float)Size, (float)Size);
 GL.Uniform3(U("fogColor"), .8f, .8f, .8f);
 GL.Uniform4(U("colorGrade"), 1f, 1f, 1f, 0f); F("sepia", 0);
 GL.Uniform2(U("sunScreen"), .5f, .5f); GL.Uniform3(U("sunViewDirection"), 0f, 0f, -1f);
+F("flickProgress", 1);
 var projection = Projection(1.2, .1, 4096);
 GL.UniformMatrix4(U("inverseProjection"), 1, false, Inverse(projection));
 void Depth(float distance)
@@ -252,7 +254,7 @@ waterModel.Clear(); waterModel.Update(1f / 60, 0); UploadWater(waterModel);
 Check(disabledRain.SequenceEqual(Render(coefficient: 0)), "GPU dry lens has no residual effect");
 // Isolate a vertical residual stream and the bottom meniscus.
 GL.Uniform1(U("rainTrailCount"), 1);
-GL.Uniform4(U("rainTrails"), .5f, .5f, .1f, .9f);
+GL.Uniform4(U("rainTrails"), .5f, .5f, .4f, .6f);
 GL.Uniform4(U("rainTrails[1]"), .012f, .008f, 1f, .62f);
 Check(Pixel(Render(coefficient: 0)) < .2f, "GPU residual streams shade a vertical water path");
 GL.Uniform1(U("rainTrailCount"), 0); F("rainPool", .04f);
