@@ -64,6 +64,9 @@ internal static class LensOverlayTests
                     if (pixels[(y * width + x) * 4 + 3] < 100) transparent++;
             Check(transparent == 90000, material + " preserves vanilla plain glass transparency");
             Check(pixels[(360 * width + 475) * 4 + 3] == 255, material + " metal inside the lens is completely opaque");
+            Check(new[] { (480, 360), (799, 360), (640, 200), (640, 519) }
+                .All(p => pixels[(p.Item2 * width + p.Item1) * 4 + 3] < 100),
+                material + " former thick black border exposes transparent glass on all four sides");
             Check(pixels.SequenceEqual(Draw(material, 1, width, height)), material + " vanilla glass is stable after recomposition");
             Check(pixels.SequenceEqual(Draw(material, 1, width, height, edgeOpacity: 0)), material + " legacy edgeOpacity cannot make the metal transparent");
         }

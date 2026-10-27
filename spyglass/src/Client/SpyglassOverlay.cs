@@ -86,10 +86,6 @@ namespace spyglass.src.Client
             // Physical metal is always opaque, even with an old edgeOpacity
             // setting. Pixel edges avoid a translucent antialiased fringe.
             ctx.Antialias = Antialias.None;
-            ctx.LineWidth = MetalWidth * 2.2;
-            ctx.SetSourceRGBA(0.055, 0.05, 0.045, 1);
-            StrokeRectangle(ctx, x, y, size);
-
             var texture = new AssetLocation("game", "textures/block/metal/ingot/" + material + ".png");
             if (api.Assets.TryGet(texture) == null)
                 texture = new AssetLocation("game", "textures/block/metal/ingot/copper.png");
@@ -102,9 +98,6 @@ namespace spyglass.src.Client
 
             ctx.SetSourceRGBA(0, 0, 0, 1 - lightLevel * 0.82);
             StrokeRectangle(ctx, x, y, size);
-            ctx.LineWidth = MetalWidth * 0.16;
-            ctx.SetSourceRGBA(0, 0, 0, 0.18);
-            StrokeRectangle(ctx, x - MetalWidth * 0.43, y - MetalWidth * 0.43, size + MetalWidth * 0.86);
             ctx.Restore();
         }
 

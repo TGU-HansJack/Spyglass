@@ -13,3 +13,30 @@ are unchanged. The complete original license is included in LICENSE.
 Fork changes: third-person effect gating, synchronized vignette/HUD handling,
 optional Scribe HUD compatibility, player lifecycle guards and state cleanup,
 and independent spyglassfork identifiers, assets and configuration.
+
+Rain simulation and height-field rendering adapted from
+Anti-Productivity RainyGlass (APRG), RainSim.cs and Shaders.hlsl.
+The Vintage Story integration uses the game scene texture and OpenGL;
+it does not include APRG desktop capture, window overlays or Direct3D code.
+
+MIT License
+
+Copyright (c) 2026 DoraNeko
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

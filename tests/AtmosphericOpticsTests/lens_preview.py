@@ -24,29 +24,29 @@ card.save(overlays / "glass-comparison.png")
 
 overlay = Image.open(overlays / "size-1044x1044.png").convert("RGBA").crop((266, 266, 778, 778))
 frames = []
-for index in range(90):
+for index in range(120):
     raw = Image.open(optics / f"water-{index:03}.ppm").convert("RGBA")
     image = Image.alpha_composite(raw, overlay)
     frame = Image.new("RGB", (544, 590), (25, 25, 25))
     frame.paste(image, (16, 65))
     draw = ImageDraw.Draw(frame)
-    draw.text((16, 7), "镜片静止水珠 · 离屏预览", font=font, fill="white")
-    draw.text((16, 32), "持续降雨" if index < 45 else "进入遮蔽处：水珠原地蒸发", font=font, fill=(160, 200, 225))
+    draw.text((16, 7), "镜片流淌水痕 · 离屏预览", font=font, fill="white")
+    draw.text((16, 32), "已持续降雨 2 分钟：水滴继续流淌" if index < 60 else "进入遮蔽处：残珠和水痕逐渐消退", font=font, fill=(160, 200, 225))
     frames.append(frame)
-frames[0].save(overlays / "lens-beads.gif", save_all=True, append_images=frames[1:], duration=100, loop=0)
-frames[30].save(overlays / "lens-beads.png")
+frames[0].save(overlays / "lens-flowing-rain.gif", save_all=True, append_images=frames[1:], duration=100, loop=0)
+frames[30].save(overlays / "lens-flowing-rain.png")
 print(overlays / "glass-comparison.png")
-print(overlays / "lens-beads.gif")
+print(overlays / "lens-flowing-rain.gif")
 
 visibility = Image.new("RGB", (735, 1883), (25, 25, 25))
 draw = ImageDraw.Draw(visibility)
 draw.text((16, 10), "亮背景可见度 · 实际 GLSL 离屏输出（非实机截图）", font=font, fill="white")
 for row, (background, title) in enumerate([("foliage", "树叶"), ("fog", "亮雾"), ("sky", "天空"), ("sun", "太阳眩光 / 接近纯白"), ("chart", "线条背景 / 折射对照")]):
-    for col, (effect, label) in enumerate([("clear", "无表面效果"), ("beads", "密集静止水珠")]):
+    for col, (effect, label) in enumerate([("clear", "无表面效果"), ("beads", "水珠与流淌水痕")]):
         raw = Image.open(optics / f"visibility-{background}-{effect}.ppm").convert("RGBA")
         image = Image.alpha_composite(raw, overlay).resize((350, 350))
         x, y = col * 365 + 10, row * 365 + 55
         visibility.paste(image, (x, y))
         draw.text((x, y - 24), title + " / " + label, font=font, fill="white")
-visibility.save(overlays / "surface-beads-v063.png")
-print(overlays / "surface-beads-v063.png")
+visibility.save(overlays / "surface-flowing-rain.png")
+print(overlays / "surface-flowing-rain.png")

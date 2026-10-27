@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>spyglassfork</AssemblyName>
-    <Version>0.6.3</Version>
+    <Version>0.6.4</Version>
     <Authors>Fuami;HansJack</Authors>
     <Copyright>Copyright (c) 2021 Fuami</Copyright>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -41,6 +41,10 @@
     </Reference>
     <Reference Include="OpenTK.Graphics">
       <HintPath>$(VINTAGE_STORY)/Lib/OpenTK.Graphics.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="OpenTK.Mathematics">
+      <HintPath>$(VINTAGE_STORY)/Lib/OpenTK.Mathematics.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="protobuf-net">

@@ -72,20 +72,28 @@ internal static class OpticsPreview
             stream.Write(System.Text.Encoding.ASCII.GetBytes($"P6\n{side} {side}\n255\n"));
             for (int y = side - 1; y >= 0; y--) stream.Write(pixels, y * side * 3, side * 3);
         }
-        // Water preview uses the production simulation and shader. Render a
-        // steady rainfall followed by sheltered evaporation, without any downward motion.
+        using var rainSurface = new LensRainSurface(
+            File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "shaders", "spyglassforkrain.vsh")),
+            File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "shaders", "spyglassforkrain.fsh")));
+        void UploadWater(LensRainModel water)
+        {
+            using (var state = new OpticsRenderState()) rainSurface.Update(water, 464, 464);
+            GL.ActiveTexture(TextureUnit.Texture2); GL.BindTexture(TextureTarget.Texture2D, rainSurface.BigTexture); GL.BindSampler(2,0);
+            GL.ActiveTexture(TextureUnit.Texture3); GL.BindTexture(TextureTarget.Texture2D, rainSurface.SmallTexture); GL.BindSampler(3,0);
+            GL.Uniform1(U("rainBigTexture"), 2); GL.Uniform1(U("rainSmallTexture"), 3);
+            GL.Uniform2(U("rainTexel"), 1f / rainSurface.Width, 1f / rainSurface.Height);
+        }
+        // Actual CPU physics, persistent GPU maps and final production composite.
         var water = new LensRainModel();
         F("extinction", 0); F("glareStrength", 0);
         F("lensRainStrength", 1); F("lensLight", 1);
-        float inset = 23.76f / side;
+        float inset = 10.8f / side;
         GL.Uniform2(U("rainInset"), inset, inset);
-        for (int tick = 0; tick < 600; tick++) water.Update(1f / 60, 1);
-        for (int frame = 0; frame < 90; frame++)
+        // Start the preview after two minutes of rain to expose pool-saturation regressions.
+        for (int tick = 0; tick < 120 * 60; tick++) { water.Update(1f / 60, 1); UploadWater(water); }
+        for (int frame = 0; frame < 120; frame++)
         {
-            for (int tick = 0; tick < 6; tick++) water.Update(1f / 60, frame < 45 ? 1 : 0);
-            GL.Uniform1(U("rainDropCount"), water.Drops.Count);
-            GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, water.DropUniforms);
-            GL.Uniform4(U("rainDropShapes"), LensRainModel.MaxDrops, water.DropShapeUniforms);
+            for (int tick = 0; tick < 6; tick++) { water.Update(1f / 60, frame < 60 ? 1 : 0); UploadWater(water); }
             GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
             var pixels = new byte[side * side * 3];
             GL.ReadPixels(origin, origin, side, side, PixelFormat.Rgb, PixelType.UnsignedByte, pixels);
@@ -96,7 +104,7 @@ internal static class OpticsPreview
         // Uniform sky/fog and glare are deliberately included: foliage alone
         // hides the loss of surface contrast in the old shading.
         var denseBeads = new LensRainModel();
-        for (int tick = 0; tick < 600; tick++) denseBeads.Update(1f / 60, 1);
+        for (int tick = 0; tick < 600; tick++) { denseBeads.Update(1f / 60, 1); UploadWater(denseBeads); }
         foreach (string background in new[] { "foliage", "fog", "sky", "sun", "chart" })
         {
             var backdrop = new byte[size * size * 4];
@@ -124,10 +132,7 @@ internal static class OpticsPreview
             F("extinction", 0); F("lensLight", 1);
             foreach (string effect in new[] { "clear", "beads" })
             {
-                F("lensRainStrength", 1);
-                GL.Uniform1(U("rainDropCount"), effect == "beads" ? denseBeads.Drops.Count : 0);
-                GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, denseBeads.DropUniforms);
-                GL.Uniform4(U("rainDropShapes"), LensRainModel.MaxDrops, denseBeads.DropShapeUniforms);
+                F("lensRainStrength", effect == "beads" ? 1 : 0);
                 GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
                 var pixels = new byte[side * side * 3];
                 GL.ReadPixels(origin, origin, side, side, PixelFormat.Rgb, PixelType.UnsignedByte, pixels);
@@ -139,15 +144,16 @@ internal static class OpticsPreview
         // Measure the production pass in a hidden GL context, not the cost of
         // PNG/GIF encoding. This is an isolated GPU sample, not game FPS.
         F("lensRainStrength", 1);
-        GL.Uniform1(U("rainDropCount"), denseBeads.Drops.Count);
-        GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, denseBeads.DropUniforms);
-        GL.Uniform4(U("rainDropShapes"), LensRainModel.MaxDrops, denseBeads.DropShapeUniforms);
         int timer = GL.GenQuery();
         GL.BeginQuery(QueryTarget.TimeElapsed, timer);
-        for (int i = 0; i < 20; i++) GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
+        for (int i = 0; i < 60; i++)
+        {
+            denseBeads.Update(1f / 60, 1); UploadWater(denseBeads);
+            GL.DrawArrays(PrimitiveType.Triangles, 0, 6);
+        }
         GL.EndQuery(QueryTarget.TimeElapsed);
         GL.GetQueryObject(timer, GetQueryObjectParam.QueryResult, out long elapsedNs);
-        Console.WriteLine($"GPU preview sample: {denseBeads.Drops.Count} beads, {elapsedNs / 20.0 / 1000000.0:0.000} ms/pass at 1044x1044, 512x512 lens");
+        Console.WriteLine($"GPU preview sample: {denseBeads.Drops.Count} beads, {elapsedNs / 60.0 / 1000000.0:0.000} ms/frame (surface + composite) at 1044x1044, 512x512 lens");
         GL.DeleteQuery(timer);
         var previewError = GL.GetError();
         if (previewError != ErrorCode.NoError) throw new InvalidOperationException("Preview OpenGL error: " + previewError);

@@ -48,7 +48,7 @@ static class Regression
         Set(modType, "loadedConfig", config);
         Check(mod.GetName().Name == "spyglassfork", "fork assembly identity");
         Check((string)Get(modType, "ModId")! == "spyglassfork", "fork mod identity");
-        Check(mod.GetName().Version == new Version(0, 6, 3, 0), "assembly release version is fixed at 0.6.3");
+        Check(mod.GetName().Version == new Version(0, 6, 4, 0), "assembly release version is 0.6.4");
         Check(AccessTools.Method(modType, "FlickLensWater") == null
             && AccessTools.DeclaredMethod(modType, "OnMouseDown") == null
             && AccessTools.Method(logic, "CtrlHeld") == null, "manual wipe entry points and Ctrl mouse interception are removed");

@@ -24,6 +24,7 @@ namespace spyglass.src.Client
         private float targetExtinction, extinction;
         private float targetLensRain;
         private readonly LensRainModel rain = new();
+        private LensRainSurface rainSurface;
         private string rainLens;
 
         public double RenderOrder => 0.5;
@@ -47,6 +48,8 @@ namespace spyglass.src.Client
             if (disposed) return true;
             shader?.Dispose();
             shader = null;
+            rainSurface?.Dispose();
+            rainSurface = null;
             failed = false;
             warnings.Clear();
             // Lazy compilation keeps a shader failure from failing the game's reload.
@@ -69,6 +72,9 @@ namespace spyglass.src.Client
                 }
             }
             quad ??= capi.Render.UploadMesh(QuadMeshUtil.GetQuad());
+            rainSurface ??= new LensRainSurface(
+                capi.Assets.Get(new AssetLocation(SpyglassMod.ModId, "shaders/spyglassforkrain.vsh")).ToText(),
+                capi.Assets.Get(new AssetLocation(SpyglassMod.ModId, "shaders/spyglassforkrain.fsh")).ToText());
             return true;
         }
 
@@ -156,6 +162,8 @@ namespace spyglass.src.Client
             if (rain.IsInUse && lens != rainLens) { rain.Clear(); rainLens = lens; }
             float rainStrength = SpyglassMod.config.enableLensRain
                 ? AtmosphericOpticsModel.Strength(SpyglassMod.config.lensRainStrength) : 0;
+            rain.SetAspect(SpyglassMod.config.GetVinetteStyle() == VignetteStyle.none ? render.FrameWidth : 1,
+                SpyglassMod.config.GetVinetteStyle() == VignetteStyle.none ? render.FrameHeight : 1);
             if (rainStrength <= 0) rain.Clear();
             else if (rain.IsInUse) rain.Update(deltaTime, targetLensRain);
             if (fade <= 0.001f) return;
@@ -210,6 +218,11 @@ namespace spyglass.src.Client
                 ? new LensAperture(0, 0, viewport[2], viewport[3])
                 : LensAperture.Square(0, 0, viewport[2], viewport[3], config.edgeSize, config.lensSize);
             if (aperture.Width <= 0 || aperture.Height <= 0) return;
+            float rimInset = config.GetVinetteStyle() == VignetteStyle.none ? 0 : (float)(SpyglassOverlay.MetalWidth * .5 / aperture.Width);
+            rimInset = Math.Min(.45f, rimInset);
+            // Restore the game's framebuffer, viewport and scissor before compositing.
+            using (var waterState = new OpticsRenderState())
+                rainSurface.Update(rain, (int)(aperture.Width * (1 - 2 * rimInset)), (int)(aperture.Height * (1 - 2 * rimInset)));
             var previousShader = render.CurrentActiveShader;
             previousShader?.Stop();
             try
@@ -222,9 +235,13 @@ namespace spyglass.src.Client
                 shader.Use();
                 shader.BindTexture2D("sceneTexture", primary.ColorTextureIds[0], 0);
                 shader.BindTexture2D("depthTexture", primary.DepthTextureId, 1);
+                shader.BindTexture2D("rainBigTexture", rainSurface.BigTexture, 2);
+                shader.BindTexture2D("rainSmallTexture", rainSurface.SmallTexture, 3);
                 // Explicit samplers are not needed; don't inherit a previous shadow sampler.
                 GL.BindSampler(0, 0);
                 GL.BindSampler(1, 0);
+                GL.BindSampler(2, 0);
+                GL.BindSampler(3, 0);
                 shader.UniformMatrix("inverseProjection", inverseProjection);
                 shader.Uniform("aperture", (float)(aperture.X / viewport[2]), (float)(1 - (aperture.Y + aperture.Height) / viewport[3]),
                     (float)(aperture.Width / viewport[2]), (float)(aperture.Height / viewport[3]));
@@ -232,11 +249,8 @@ namespace spyglass.src.Client
                 shader.Uniform("fade", fade);
                 shader.Uniform("lensRainStrength", rainStrength);
                 shader.Uniform("lensLight", ClientManipulation.GetLensLightLevel());
-                shader.Uniform("rainDropCount", rain.Drops.Count);
-                shader.Uniforms4("rainDrops", LensRainModel.MaxDrops, rain.DropUniforms);
-                shader.Uniforms4("rainDropShapes", LensRainModel.MaxDrops, rain.DropShapeUniforms);
-                float rimInset = config.GetVinetteStyle() == VignetteStyle.none ? 0 : (float)(SpyglassOverlay.MetalWidth * 1.1 / aperture.Width);
-                shader.Uniform("rainInset", Math.Min(.45f, rimInset), Math.Min(.45f, rimInset));
+                shader.Uniform("rainTexel", 1f / rainSurface.Width, 1f / rainSurface.Height);
+                shader.Uniform("rainInset", rimInset, rimInset);
                 shader.Uniform("extinction", coefficient);
                 shader.Uniform("dayWeight", AtmosphericOpticsModel.DayWeight(sunElevation));
                 shader.Uniform("glareStrength", glare);
@@ -267,6 +281,8 @@ namespace spyglass.src.Client
             shader = null;
             quad?.Dispose();
             quad = null;
+            rainSurface?.Dispose();
+            rainSurface = null;
             weather = null;
         }
     }

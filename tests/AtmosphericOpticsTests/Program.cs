@@ -86,34 +86,95 @@ Check(typeof(LensRainModel).GetFields(System.Reflection.BindingFlags.NonPublic |
     .All(f => !f.Name.Contains("Frost", StringComparison.OrdinalIgnoreCase)), "lens surface model has no frost state or GPU arrays");
 var stationary = new LensRainModel();
 stationary.AddDrop(.2f, .25f, .008f);
-stationary.AddDrop(.5f, .55f, .015f);
-stationary.AddDrop(.8f, .90f, .022f);
-var positions = stationary.Drops.Select(d => (d.X, d.Y, d.Radius)).ToArray();
 for (int i = 0; i < 600; i++) stationary.Update(1f / 60, 0);
-Check(stationary.Drops.Select(d => (d.X, d.Y, d.Radius)).SequenceEqual(positions),
-    "all bead sizes remain fixed in place without gravity or position-based growth");
-Check(stationary.Drops.All(d => d.Fade > .7f && d.Fade < 1), "stationary beads evaporate through opacity rather than flattening");
+Near(stationary.Drops[0].Y, .25, "small beads adhere to their impact point");
+Check(stationary.Drops[0].Fade < 1 && stationary.Drops[0].Fade > .7f, "adhering droplets gradually evaporate");
+var flowing = new LensRainModel(); flowing.AddDrop(.5f, .2f, .025f);
+var moving = flowing.Drops[0];
+for (int i = 0; i < 180; i++) flowing.Update(1f / 60, 0);
+Check(moving.Moving && moving.Y > .4f, "large droplets overcome adhesion and flow downward");
+Check(flowing.Stamps.Any(s => s.Kind == LensRainModel.StampKind.Trail && s.Y1 > s.Y0), "flow deposits swept persistent trails");
+Check(flowing.Stamps.Any(s => s.Kind == LensRainModel.StampKind.Erase), "flow absorbs small beads along its path");
+Check(moving.Radius < .025f && moving.Stretch > 0, "flow sheds volume and stretches the upper tail");
 var merging = new LensRainModel();
 merging.AddDrop(.5f, .5f, .021f); merging.AddDrop(.51f, .5f, .021f);
 merging.Update(1f / 60, 0);
-Check(merging.Drops.Count == 1 && merging.Drops[0].Radius == LensRainModel.MaxDropRadius,
-    "only touching beads merge and size is capped");
-Check(merging.Drops[0].X == .5f && merging.Drops[0].Y == .5f, "merging does not make beads crawl");
+Check(merging.Drops.Count == 1, "touching droplets merge");
+Near(merging.Drops[0].Radius, Math.Sqrt(2) * .021, "merge conserves droplet area");
+Near(merging.Drops[0].X, .505, "adhering merged droplet uses weighted position");
+merging.AddDrop(.5f, .5f, .04f); merging.Update(1f / 60, 0);
+Near(merging.Drops[0].Radius, LensRainModel.MaxDropRadius, "merged droplets have a radius cap");
+// A full pool of adhering beads must still admit fresh impacts without
+// discarding the visible stationary water or interrupting active flow.
+var saturated = new LensRainModel();
+for (int i = 0; i < LensRainModel.MaxDrops; i++)
+    saturated.AddDrop(.05f + i % 10 * .09f, .05f + i / 10 * .11f, .008f);
+var settledBead = saturated.Drops[0]; settledBead.Fade = .2f;
+var activeBead = saturated.Drops[1]; activeBead.Moving = true; activeBead.Fade = .001f;
+var pendingFlow = saturated.Drops[2]; pendingFlow.Radius = .02f; pendingFlow.Fade = .001f;
+saturated.AcknowledgeSurface();
+saturated.AddDrop(.5f, .1f, .025f);
+Check(saturated.Drops.Count == LensRainModel.MaxDrops && saturated.Drops.Any(d => d.Radius == .025f),
+    "saturated adhering beads leave room for a new flowing impact");
+Check(!saturated.Drops.Contains(settledBead) && saturated.Stamps.Any(s => s.Kind == LensRainModel.StampKind.Small
+    && s.X0 == settledBead.X && s.Y0 == settledBead.Y && s.Radius == settledBead.Radius && s.Height == .5f * settledBead.Fade),
+    "displaced adhering bead retains its location size and fade in the persistent map");
+Check(saturated.Drops.Contains(activeBead) && saturated.Drops.Contains(pendingFlow),
+    "pool turnover preserves moving drops and drops large enough to start flowing");
+var allFlowing = new LensRainModel();
+for (int i = 0; i < LensRainModel.MaxDrops; i++) { allFlowing.AddDrop(.5f, .1f, .02f); allFlowing.Drops[^1].Moving = true; }
+var activeDrops = allFlowing.Drops.ToArray(); allFlowing.AcknowledgeSurface();
+allFlowing.AddDrop(.5f, .1f, .025f);
+Check(allFlowing.Drops.SequenceEqual(activeDrops) && allFlowing.Stamps.Count == 0,
+    "a pool full of active flow stays bounded without replacing moving drops");
+
+// Acknowledge every frame as the renderer does: old queued trail commands
+// must not mask a later stall after the physics pool fills up.
+foreach (float intensity in new[] { 1f, .5f, .2f })
+{
+    var continuous = new LensRainModel();
+    int gap = 0, longestGap = 0, windowFlow = 0, minimumWindowFlow = 600;
+    bool bounded = true;
+    for (int tick = 0; tick < 180 * 60; tick++)
+    {
+        continuous.Update(1f / 60, intensity);
+        bounded &= continuous.Drops.Count <= LensRainModel.MaxDrops && continuous.Stamps.Count <= 4096;
+        if (tick >= 600)
+        {
+            bool freshTrail = continuous.Stamps.Any(s => s.Kind == LensRainModel.StampKind.Trail && s.Y1 > s.Y0);
+            gap = freshTrail ? 0 : gap + 1; longestGap = Math.Max(longestGap, gap);
+            if (freshTrail) windowFlow++;
+            if ((tick + 1) % 600 == 0) { minimumWindowFlow = Math.Min(minimumWindowFlow, windowFlow); windowFlow = 0; }
+        }
+        continuous.AcknowledgeSurface();
+    }
+    Check(bounded, $"three minutes of rain at {intensity} keeps water resources bounded");
+    Check(longestGap < 600, $"three minutes of rain at {intensity} has no ten-second flow stall (max {longestGap / 60f:0.00}s)");
+    Check(minimumWindowFlow >= 60, $"rain at {intensity} deposits fresh trails throughout every ten-second window");
+    for (int tick = 0; tick < 60 * 60; tick++) { continuous.Update(1f / 60, 0); continuous.AcknowledgeSurface(); }
+    Check(!continuous.HasWater, $"saturated rain at {intensity} still dries within a minute under shelter");
+}
 var wet = new LensRainModel();
 for (int i = 0; i < 1800; i++) wet.Update(1f / 60, 1);
-Check(wet.HasWater && wet.Drops.Count <= LensRainModel.MaxDrops, "rain leaves a bounded set of surface beads");
-Check(wet.Drops.Count >= 45, "sustained rain maintains dozens of stationary beads rather than a sparse dozen");
-Check(wet.Drops.Count(d => d.Radius < .012f) >= 15, "dense rainfall retains numerous small beads instead of giant merged spots");
+Check(wet.HasWater && wet.Drops.Count <= LensRainModel.MaxDrops && wet.Stamps.Count <= 4096, "sustained rain bounds drops and deferred GPU commands");
+Check(wet.Drops.Count(d => d.Radius < .012f) >= 10, "sustained rain retains numerous adhering small beads");
+Check(wet.Stamps.Any(s => s.Kind == LensRainModel.StampKind.Small) && wet.Stamps.Any(s => s.Kind == LensRainModel.StampKind.Trail),
+    "sustained rain deposits both fine droplets and flowing trails");
 for (int i = 0; i < 3600; i++) wet.Update(1f / 60, 0);
-Check(!wet.HasWater, "surface beads evaporate within a minute after rain stops");
+Check(!wet.HasWater, "droplets and residual trails dry within a minute of sheltered observation");
 var rate30 = new LensRainModel(); var rate60 = new LensRainModel();
 for (int i = 0; i < 600; i++) rate30.Update(1f / 30, 1);
 for (int i = 0; i < 1200; i++) rate60.Update(1f / 60, 1);
-Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.DropShapeUniforms.SequenceEqual(rate60.DropShapeUniforms),
-    "stationary beads agree at 30 and 60 FPS");
+Check(rate30.DropUniforms.SequenceEqual(rate60.DropUniforms) && rate30.DropShapeUniforms.SequenceEqual(rate60.DropShapeUniforms)
+    && rate30.Stamps.SequenceEqual(rate60.Stamps), "flow and deposits agree at 30 and 60 FPS");
+var wide = new LensRainModel(); var squareWater = new LensRainModel(); wide.SetAspect(2, 1);
+wide.AddDrop(.5f, .1f, .03f); squareWater.AddDrop(.5f, .1f, .03f);
+for (int i = 0; i < 60; i++) { wide.Update(1f / 60, 0); squareWater.Update(1f / 60, 0); }
+Near(wide.Drops[0].Y, squareWater.Drops[0].Y, "flow speed uses physical lens proportions");
+int priorGeneration = rate30.Generation;
 rate30.Clear();
-Check(!rate30.HasWater && rate30.DropUniforms.All(v => v == 0) && rate30.DropShapeUniforms.All(v => v == 0),
-    "surface reset clears all surface states and uploaded data");
+Check(!rate30.HasWater && rate30.Stamps.Count == 0 && rate30.Generation != priorGeneration
+    && rate30.DropUniforms.All(v => v == 0) && rate30.DropShapeUniforms.All(v => v == 0), "reset invalidates persistent textures and pending deposits");
 var idle = new LensRainModel();
 idle.AddDrop(.5f, .5f, .015f);
 idle.Update(1f / 60, 0);
@@ -248,46 +309,82 @@ GL.Uniform2(U("sunScreen"), .5f, .5f);
 Near(Pixel(Render(coefficient: 0, glare: AtmosphericOpticsModel.Glare(1, 0, 0, 0, 1))), .2, "GPU engine-occluded sun contributes no glare");
 Near(halo[(32 * Size + 32) * 4 + 3], .7, "GPU scene alpha preserved");
 
-var waterModel = new LensRainModel();
-waterModel.AddDrop(.5f, .5f, .08f);
-waterModel.Update(1f / 60, 0);
+using var surface = new LensRainSurface(
+    File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "shaders", "spyglassforkrain.vsh")),
+    File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "shaders", "spyglassforkrain.fsh")));
 void UploadWater(LensRainModel model)
 {
-    GL.Uniform1(U("rainDropCount"), model.Drops.Count);
-    GL.Uniform4(U("rainDrops"), LensRainModel.MaxDrops, model.DropUniforms);
-    GL.Uniform4(U("rainDropShapes"), LensRainModel.MaxDrops, model.DropShapeUniforms);
+    using (var state = new OpticsRenderState()) surface.Update(model, 512, 512);
+    var error = GL.GetError(); if (error != ErrorCode.NoError) throw new Exception("Surface upload GL: " + error);
+    GL.ActiveTexture(TextureUnit.Texture2); GL.BindTexture(TextureTarget.Texture2D, surface.BigTexture); GL.BindSampler(2, 0);
+    GL.ActiveTexture(TextureUnit.Texture3); GL.BindTexture(TextureTarget.Texture2D, surface.SmallTexture); GL.BindSampler(3, 0);
+    GL.Uniform1(U("rainBigTexture"), 2); GL.Uniform1(U("rainSmallTexture"), 3);
+    GL.Uniform2(U("rainTexel"), 1f / surface.Width, 1f / surface.Height);
 }
-F("lensRainStrength", 1); F("lensLight", 1);
-UploadWater(waterModel);
+float[] ReadWater(int texture)
+{
+    using var state = new OpticsRenderState();
+    GL.ActiveTexture(TextureUnit.Texture2); GL.BindTexture(TextureTarget.Texture2D, texture);
+    var values = new float[surface.Width * surface.Height * 2];
+    GL.GetTexImage(TextureTarget.Texture2D, 0, PixelFormat.Rg, PixelType.Float, values);
+    return values;
+}
+void SolidScene(float value)
+{
+    GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, scene);
+    GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, 1, 1, 0, PixelFormat.Rgba, PixelType.Float,
+        new[] {value, value, value, .7f});
+}
+var waterModel = new LensRainModel(); waterModel.AddDrop(.5f, .5f, .024f); waterModel.Update(1f / 60, 0);
+F("lensRainStrength", 1); F("lensLight", 1); UploadWater(waterModel);
 var beads = Render(coefficient: 0);
-Check(Pixel(beads) < .2f, "GPU water beads have filled centers rather than hollow rings");
-Near(Pixel(beads, 2, 2), .2, "GPU dry glass outside the bead is unchanged");
-for (int i = 0; i < 30; i++) waterModel.Update(1f / 60, 0);
-UploadWater(waterModel);
-Check(!beads.SequenceEqual(Render(coefficient: 0)), "GPU bead opacity changes during evaporation");
+Check(beads.All(v => float.IsFinite(v)) && !beads.SequenceEqual(Render(coefficient: 0, fade: 0)), "GPU rounded height field affects transmitted scene");
+Near(Pixel(beads, 2, 2), .2, "GPU dry glass outside droplet is unchanged");
 Near(beads[(32 * Size + 32) * 4 + 3], .7, "GPU water preserves scene alpha");
-F("lensRainStrength", 0);
-var disabledRain = Render(coefficient: 0);
-Check(Enumerable.Range(0, Size * Size).All(i => Math.Abs(disabledRain[i * 4] - .2f) < .0001f), "GPU zero lens rain strength preserves the scene");
+F("lensRainStrength", 0); var disabledRain = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size * Size).All(i => Math.Abs(disabledRain[i * 4] - .2f) < .0001f), "GPU disabled water preserves all pixels");
 F("lensRainStrength", 1);
-Check(disabledRain.SequenceEqual(Render(coefficient: 0, fade: 0)), "GPU water fades out with zoom");
-Near(Pixel(Render(coefficient: 0, square: true), 2, 2), .031, "GPU water stays inside the lens");
-waterModel.Clear(); waterModel.Update(1f / 60, 0); UploadWater(waterModel);
-Check(disabledRain.SequenceEqual(Render(coefficient: 0)), "GPU dry lens has no residual effect");
-// Empty glass must have no phantom trails or water along its lower edge.
-var emptySurface = Render(coefficient: 0);
-Check(Enumerable.Range(0, Size * Size).All(i => Math.Abs(emptySurface[i * 4] - .2f) < .0001f),
-    "GPU clear surface has no water trails or bottom water plane");
-var onlyBead = new LensRainModel(); onlyBead.AddDrop(.5f, .5f, .02f); onlyBead.Update(1f / 60, 0);
-UploadWater(onlyBead);
-var isolated = Render(coefficient: 0);
-Check(Enumerable.Range(0, Size).All(x => Math.Abs(Pixel(isolated, x, 0) - .2f) < .0001f),
-    "GPU bead creates no bottom accumulation");
-Near(Pixel(isolated, 32, 10), .2f, "GPU isolated bead leaves no vertical tail");
-onlyBead.Clear(); UploadWater(onlyBead);
-// Refraction must still alter a patterned scene when illumination is zero;
-// this distinguishes transmitted background displacement from white alpha paint.
-GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, scene);
+Check(disabledRain.SequenceEqual(Render(coefficient: 0, fade: 0)), "GPU water fades with zoom");
+Near(Pixel(Render(coefficient: 0, square: true), 2, 2), .031, "GPU water stays inside aperture");
+waterModel.Clear(); UploadWater(waterModel);
+Check(disabledRain.SequenceEqual(Render(coefficient: 0)), "GPU clear invalidates all persistent water");
+
+// A real flowing drop must leave a texture behind after its head exits.
+var runoff = new LensRainModel(); runoff.AddDrop(.5f, .1f, .03f);
+for (int i = 0; i < 240; i++) { runoff.Update(1f / 60, 0); UploadWater(runoff); }
+Check(runoff.Drops.Count == 0, "flowing head exits through lower lens boundary");
+var residual = ReadWater(surface.SmallTexture);
+float TrailPeak(float[] data) => Enumerable.Range(0, data.Length / 2).Max(i => data[i * 2 + 1]);
+float SmallPeak(float[] data) => Enumerable.Range(0, data.Length / 2).Max(i => data[i * 2]);
+Check(TrailPeak(residual) > .01f && SmallPeak(residual) > 0, "GPU persistent trails and shed beads survive departed head");
+var trailImage = Render(coefficient: 0);
+Check(!trailImage.SequenceEqual(disabledRain), "GPU residual trails refract and shade without a large bead");
+for (int i = 0; i < 60; i++) { runoff.Update(1f / 60, 0); UploadWater(runoff); }
+Check(TrailPeak(ReadWater(surface.SmallTexture)) < TrailPeak(residual) * .65f, "GPU trails evaporate after head departs");
+runoff.Clear(); UploadWater(runoff);
+Check(ReadWater(surface.SmallTexture).All(v => v == 0) && ReadWater(surface.BigTexture).All(v => v == 0), "GPU clear zeros both water targets");
+
+// Controlled deposits test channel separation and historical aging on late uploads.
+var channels = new LensRainModel();
+channels.Stamps.Add(new(.5f,.5f,.5f,.5f,.02f,.5f,.1f,LensRainModel.StampKind.Small,0));
+channels.Stamps.Add(new(.5f,.4f,.5f,.6f,.01f,.5f,.1f,LensRainModel.StampKind.Trail,0));
+UploadWater(channels); var beforeErase = ReadWater(surface.SmallTexture);
+channels.Stamps.Add(new(.5f,.4f,.5f,.6f,.03f,0,0,LensRainModel.StampKind.Erase,0));
+UploadWater(channels); var afterErase = ReadWater(surface.SmallTexture);
+Check(SmallPeak(afterErase) == 0 && TrailPeak(afterErase) == TrailPeak(beforeErase), "GPU passing bead absorbs fine drops while preserving deposited trail channel");
+using (var state = new OpticsRenderState()) surface.Update(channels, 256, 256);
+var resizedTrail = TrailPeak(ReadWater(surface.SmallTexture));
+Check(resizedTrail > TrailPeak(afterErase) * .4f && resizedTrail < TrailPeak(afterErase) * .6f,
+    "GPU resize preserves deposited trail with scaled physical height");
+using (var state = new OpticsRenderState()) surface.Update(channels, 2048, 1024);
+Check(surface.Width == 1024 && surface.Height == 512 && TrailPeak(ReadWater(surface.SmallTexture)) > 0,
+    "GPU large displays cap texture size while preserving aspect and trails");
+channels.Clear(); UploadWater(channels);
+channels.Stamps.Add(new(.5f,.5f,.5f,.5f,.02f,.5f,.1f,LensRainModel.StampKind.Small,0));
+for (int i = 0; i < 600; i++) channels.Update(1f / 60, 0);
+UploadWater(channels);
+Check(SmallPeak(ReadWater(surface.SmallTexture)) < SmallPeak(beforeErase) * .3f, "GPU deferred deposits retain their true age");
+
 var pattern = new float[Size * Size * 4];
 for (int y = 0; y < Size; y++) for (int x = 0; x < Size; x++)
 {
@@ -295,86 +392,42 @@ for (int y = 0; y < Size; y++) for (int x = 0; x < Size; x++)
     pattern[j] = pattern[j + 1] = pattern[j + 2] = ((x / 3 + y / 3) % 2 == 0) ? .1f : .7f;
     pattern[j + 3] = .7f;
 }
+GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, scene);
 GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, Size, Size, 0, PixelFormat.Rgba, PixelType.Float, pattern);
 GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
 GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
-F("lensLight", 0);
-var plainPattern = Render(coefficient: 0);
-var patternBead = new LensRainModel(); patternBead.AddDrop(.5f, .5f, .024f); patternBead.Update(1f / 60, 0);
-UploadWater(patternBead); F("lensRainStrength", 1);
-var beadPattern = Render(coefficient: 0);
-Check(Enumerable.Range(0, Size * Size).Any(i => Math.Abs(beadPattern[i * 4] - plainPattern[i * 4]) > .08f),
-    "GPU optical bead actually magnifies or displaces background detail");
-// The rounded height response from v0.7.7 must survive the sky-visibility
-// correction. Compare an interior point against the old profile on flat gray:
-// evaluate its original expression including the finite-difference normal at
-// this deliberately low test resolution, without a contact ring replacing it.
-GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, 1, 1, 0, PixelFormat.Rgba, PixelType.Float, new[] {.2f, .2f, .2f, .7f});
-F("lensLight", 1);
-var originalResponse = Render(coefficient: 0);
-var legacyDrop = patternBead.Drops[0];
-float LegacyHeight(float x, float y)
-{
-    float qx = (x - legacyDrop.X) / legacyDrop.Radius;
-    float qy = (y - legacyDrop.Y) / legacyDrop.Radius / legacyDrop.Shape;
-    float body = Math.Max(0, 1 - qx * qx - qy * qy);
-    return body * body * legacyDrop.Fade;
-}
-float legacyCenter = LegacyHeight(.5f, .5f);
-float legacyNx = (LegacyHeight(.5f + 1f / Size, .5f) - legacyCenter) * Size / 128f;
-float legacyNy = (LegacyHeight(.5f, .5f - 1f / Size) - legacyCenter) * Size / 128f;
-float legacyShade = Math.Clamp(MathF.Sqrt(legacyNx * legacyNx + legacyNy * legacyNy) * .18f, 0, .055f);
-float legacyLight = Math.Clamp((-legacyNx + legacyNy) * .14f, 0, .045f);
-Near(Pixel(originalResponse), .2f * (1 + legacyLight - legacyShade - legacyCenter * .055f),
-    "GPU bead center matches original thickness, normal and transmission expression", .0001);
-Check(Pixel(originalResponse) > .175f, "GPU bead interior retains transmission instead of a dark contact-ring fill");
-GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, Size, Size, 0, PixelFormat.Rgba, PixelType.Float, pattern);
-F("lensLight", 0);
-patternBead.Clear(); UploadWater(patternBead);
-F("lensRainStrength", 0);
-
-// Bright sky contains no detail for refraction to displace. Test RGB contrast
-// against the background itself, not alpha or against a dark foliage screenshot.
-void SolidScene(float value)
-{
-    GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, scene);
-    GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba32f, 1, 1, 0, PixelFormat.Rgba, PixelType.Float,
-        new[] {value, value, value, .7f});
-}
+F("lensLight", 0); F("lensRainStrength", 0); var plainPattern = Render(coefficient: 0);
+var patternBead = new LensRainModel(); patternBead.AddDrop(.5f, .5f, .04f); patternBead.Update(1f / 60, 0);
+UploadWater(patternBead); F("lensRainStrength", 1); var beadPattern = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size * Size).Any(i => Math.Abs(beadPattern[i * 4] - plainPattern[i * 4]) > .08f), "GPU water displaces patterned background even with zero lens light");
 foreach (float background in new[] { .82f, .95f, 1f })
 {
-    SolidScene(background);
-    UploadWater(onlyBead);
-    // onlyBead was cleared above; populate a fresh stationary dome.
-    var brightBead = new LensRainModel(); brightBead.AddDrop(.5f, .5f, .024f); brightBead.Update(1f / 60, 0);
-    UploadWater(brightBead); F("lensRainStrength", 1); F("lensLight", 1);
+    SolidScene(background); F("lensLight", 1);
     var skyBead = Render(float.PositiveInfinity, coefficient: 0);
-    Check(Enumerable.Range(0, Size * Size).Any(i => skyBead[i * 4] < background - .08f),
-        $"GPU bead contact rim remains visible on uniform bright sky {background}");
-    var sunlitBead = Render(float.PositiveInfinity, coefficient: 0, glare: .2f);
-    brightBead.Clear(); UploadWater(brightBead);
-    var plainSunlit = Render(float.PositiveInfinity, coefficient: 0, glare: .2f);
-    Check(Enumerable.Range(0, Size * Size).Any(i => plainSunlit[i * 4] - sunlitBead[i * 4] > .045f),
-        $"GPU solar glare does not wash out bead contrast on sky {background}");
-    Near(Pixel(skyBead, 2, 2), background, "GPU bead rim does not tint the surrounding bright sky");
-    Near(skyBead[(32 * Size + 32) * 4 + 3], .7f, "GPU bright-sky bead preserves scene alpha");
+    Check(Enumerable.Range(0, Size * Size).Any(i => skyBead[i * 4] < background - .04f), $"GPU water has visible rim on flat bright sky {background}");
+    Near(Pixel(skyBead, 2, 2), background, "GPU surrounding sky remains unchanged");
 }
-SolidScene(0); UploadWater(onlyBead);
-onlyBead.AddDrop(.5f, .5f, .024f); onlyBead.Update(1f / 60, 0); UploadWater(onlyBead);
-F("lensLight", 0);
-var unlitBead = Render(coefficient: 0);
-Check(Enumerable.Range(0, Size * Size).All(i => unlitBead[i * 4] == 0), "GPU denser optical beads never self-illuminate black glass");
-onlyBead.Clear(); UploadWater(onlyBead);
+SolidScene(0); F("lensLight", 0);
+var unlit = Render(coefficient: 0);
+Check(Enumerable.Range(0, Size * Size).All(i => unlit[i * 4] == 0), "GPU black scene stays black with water");
+patternBead.Clear(); UploadWater(patternBead);
 SolidScene(.2f); F("lensLight", 1); F("lensRainStrength", 0);
+GL.ActiveTexture(TextureUnit.Texture2); GL.BindTexture(TextureTarget.Texture2D, 0);
+GL.ActiveTexture(TextureUnit.Texture3); GL.BindTexture(TextureTarget.Texture2D, 0);
 
 GL.Enable(EnableCap.DepthTest); GL.Enable(EnableCap.Blend); GL.Enable(EnableCap.CullFace); GL.DepthMask(true);
 GL.BlendFuncSeparate(BlendingFactorSrc.SrcAlpha, BlendingFactorDest.OneMinusSrcAlpha, BlendingFactorSrc.One, BlendingFactorDest.Zero);
 int sampler = GL.GenSampler(); GL.BindSampler(0, sampler);
-GL.ActiveTexture(TextureUnit.Texture3);
+GL.ActiveTexture(TextureUnit.Texture3); GL.BindTexture(TextureTarget.Texture2D, depthTexture); GL.BindSampler(3, sampler);
+GL.Enable(EnableCap.ScissorTest); GL.Scissor(3, 4, 7, 8); GL.Viewport(1, 2, 31, 32);
+GL.ClearColor(.1f, .2f, .3f, .4f); GL.ColorMask(true, false, true, false);
+GL.BlendEquationSeparate(BlendEquationMode.FuncReverseSubtract, BlendEquationMode.FuncSubtract);
+GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, 0);
 try
 {
     using var state = new OpticsRenderState();
     GL.Disable(EnableCap.DepthTest); GL.Disable(EnableCap.Blend); GL.Disable(EnableCap.CullFace); GL.DepthMask(false);
+    surface.Update(new LensRainModel(), 256, 128);
     GL.BlendFunc(BlendingFactor.One, BlendingFactor.One);
     GL.UseProgram(0); GL.BindVertexArray(0); GL.BindBuffer(BufferTarget.ArrayBuffer, 0);
     GL.ActiveTexture(TextureUnit.Texture0); GL.BindTexture(TextureTarget.Texture2D, 0); GL.BindSampler(0, 0);
@@ -400,7 +453,21 @@ Check(GL.GetInteger(GetPName.TextureBinding2D) == depthTexture, "GL depth textur
 GL.ActiveTexture(TextureUnit.Texture2);
 Check(GL.GetInteger(GetPName.TextureBinding2D) == 0 && GL.GetInteger(GetPName.SamplerBinding) == 0,
     "GL unrelated third texture unit remains intact after lens rendering");
-Check(GL.GetError() == ErrorCode.NoError, "no OpenGL errors");
+GL.ActiveTexture(TextureUnit.Texture3);
+Check(GL.GetInteger(GetPName.TextureBinding2D) == depthTexture && GL.GetInteger(GetPName.SamplerBinding) == sampler,
+    "GL fourth texture and sampler restored after surface pass");
+var restoredViewport = new int[4]; GL.GetInteger(GetPName.Viewport, restoredViewport);
+var restoredClear = new float[4]; GL.GetFloat(GetPName.ColorClearValue, restoredClear);
+var restoredMask = new bool[4]; GL.GetBoolean(GetPName.ColorWritemask, restoredMask);
+Check(restoredViewport.SequenceEqual(new[] {1,2,31,32}) && GL.IsEnabled(EnableCap.ScissorTest), "GL viewport and scissor restored before game composite");
+Check(GL.GetInteger(GetPName.DrawFramebufferBinding) == framebuffer && GL.GetInteger(GetPName.ReadFramebufferBinding) == 0,
+    "GL draw and read framebuffer restored independently");
+Check(restoredMask.SequenceEqual(new[] {true,false,true,false}) && Math.Abs(restoredClear[2] - .3f) < .0001f,
+    "GL color mask and clear color restored");
+Check(GL.GetInteger(GetPName.BlendEquationRgb) == (int)BlendEquationMode.FuncReverseSubtract
+    && GL.GetInteger(GetPName.BlendEquationAlpha) == (int)BlendEquationMode.FuncSubtract, "GL separate blend equations restored");
+GL.Disable(EnableCap.ScissorTest); GL.ColorMask(true,true,true,true); GL.BlendEquation(BlendEquationMode.FuncAdd);
+var finalError = GL.GetError(); Check(finalError == ErrorCode.NoError, "no OpenGL errors: " + finalError);
 if (args.Length == 2 && args[0] == "--preview")
     OpticsPreview.Render(program, vao, Path.GetFullPath(args[1]));
 GL.DeleteSampler(sampler); GL.DeleteBuffer(vbo); GL.DeleteVertexArray(vao); GL.DeleteFramebuffer(framebuffer);

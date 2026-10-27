@@ -15,37 +15,19 @@ uniform vec3 sunViewDirection;
 uniform vec2 sunScreen;
 uniform float lensRainStrength;
 uniform float lensLight;
-uniform int rainDropCount;
-uniform vec4 rainDrops[80];
-uniform vec4 rainDropShapes[80];
+uniform sampler2D rainBigTexture;
+uniform sampler2D rainSmallTexture;
+uniform vec2 rainTexel;
 uniform vec2 rainInset;
 in vec2 texCoord;
 layout(location = 0) out vec4 outColor;
 
-// Restore the original rounded height profile: optical transmission is
-// driven by thickness gradients, not a drawn contact ring. zw: height, thin rim.
-vec4 beadSurface(vec2 p)
+// APRG's persistent two-channel height field: tiny beads and deposited trails.
+float heightAt(vec2 uv)
 {
-    vec4 surface = vec4(0.0);
-    for (int i = 0; i < rainDropCount; i++)
-    {
-        vec4 bead = rainDrops[i];
-        vec2 q = (p - bead.xy) / max(bead.z, 0.001);
-        q.y /= rainDropShapes[i].x;
-        float r2 = dot(q, q);
-        float body = max(0.0, 1.0 - r2);
-        float thickness = body * body * bead.w;
-        surface.z = max(surface.z, thickness);
-        float contact = smoothstep(0.72, 0.88, r2) * (1.0 - smoothstep(0.94, 1.0, r2));
-        surface.w = max(surface.w, contact * bead.w);
-    }
-    return surface;
-}
-
-// Rounded water lens response, matching the original bead optics.
-vec2 transmissionNormal(float thickness, vec2 physicalSize)
-{
-    return vec2(dFdx(thickness), dFdy(thickness)) * physicalSize / 128.0;
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
+    vec2 small = texture(rainSmallTexture, uv).rg;
+    return max(texture(rainBigTexture, uv).r, max(small.r, small.g));
 }
 
 float hueChannel(float lo, float hi, float h)
@@ -98,12 +80,23 @@ void main()
     vec2 lensPoint = ((texCoord - aperture.xy) / aperture.zw - rainInset) / max(vec2(0.01), 1.0 - 2.0 * rainInset);
     lensPoint.y = 1.0 - lensPoint.y;
     bool onLens = all(greaterThanEqual(lensPoint, vec2(0.0))) && all(lessThanEqual(lensPoint, vec2(1.0)));
-    vec4 bead = lensRainStrength > 0.0 && onLens ? beadSurface(lensPoint) : vec4(0.0);
-    vec2 physicalSize = aperture.zw * frameSize;
-    vec2 beadNormal = transmissionNormal(bead.z, physicalSize);
-    vec2 beadShift = beadNormal * lensRainStrength * 0.012;
-    vec2 refractedUv = clamp(texCoord + beadShift,
-        aperture.xy + 0.5 / frameSize, farEdge - 0.5 / frameSize);
+    vec2 waterUv = vec2(lensPoint.x, 1.0 - lensPoint.y);
+    float height = lensRainStrength > 0.0 && onLens ? heightAt(waterUv) : 0.0;
+    float mapScale = min(1.0 / rainTexel.x, 1.0 / rainTexel.y) / 512.0;
+    float waterAlpha = clamp(height / max(0.6 * mapScale, 0.001), 0.0, 1.0);
+    vec2 gradient = vec2(0.0);
+    if (waterAlpha > 0.002)
+        gradient = vec2(heightAt(waterUv + vec2(rainTexel.x, 0.0)) - heightAt(waterUv - vec2(rainTexel.x, 0.0)),
+            heightAt(waterUv + vec2(0.0, rainTexel.y)) - heightAt(waterUv - vec2(0.0, rainTexel.y))) * 0.5;
+    vec3 normal = normalize(vec3(-gradient, 1.0));
+    vec2 big = texture(rainBigTexture, waterUv).rg;
+    vec2 small = texture(rainSmallTexture, waterUv).rg;
+    float lensRadius = big.r >= max(small.r, small.g) ? big.g : 3.0 * mapScale;
+    vec2 shift = -normal.xy * (lensRadius * 1.4 + 2.0 * mapScale) * rainTexel
+        * aperture.zw * (1.0 - 2.0 * rainInset) * lensRainStrength * waterAlpha;
+    vec2 innerMin = aperture.xy + aperture.zw * rainInset + 0.5 / frameSize;
+    vec2 innerMax = farEdge - aperture.zw * rainInset - 0.5 / frameSize;
+    vec2 refractedUv = waterAlpha > 0.002 ? clamp(texCoord + shift, innerMin, innerMax) : texCoord;
     vec3 color = texture(sceneTexture, refractedUv).rgb;
     float depth = texture(depthTexture, texCoord).r;
     vec4 view = inverseProjection * vec4(texCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
@@ -126,18 +119,20 @@ void main()
     float angular = smoothstep(0.9781476, 1.0, dot(normalize(ray.xyz), normalize(sunViewDirection)));
     float halo = exp(-4.0 * dot(delta, delta) / (radius * radius)) * angular * inView * glareStrength;
     color = mix(color, gradeAir(vec3(1.0, 0.97, 0.90)), clamp(halo, 0.0, 0.20));
-    float illumination = clamp(lensLight, 0.0, 1.0);
-    float luminance = dot(color, vec3(0.299, 0.587, 0.114));
-    if (bead.z > 0.0)
+    if (waterAlpha > 0.002)
     {
-        // The original water transmission shading is kept verbatim.
-        float edgeShade = clamp(length(beadNormal) * 0.18, 0.0, 0.055);
-        float highlight = clamp((-beadNormal.x + beadNormal.y) * 0.14, 0.0, 0.045) * illumination;
-        color *= 1.0 + (highlight - edgeShade - bead.z * 0.055) * lensRainStrength;
-        // A thin supplemental rim only on bright sky; do not replace the dome
-        // with the broad, dark circles introduced by the visibility correction.
-        float brightRim = bead.w * smoothstep(0.60, 0.95, luminance) * illumination;
-        color *= 1.0 - brightRim * 0.28 * lensRainStrength;
+        // APRG's rounded lens, lower dark rim and upper reflection. Illumination
+        // follows the game; unlit water cannot add light to a black scene.
+        float illumination = clamp(lensLight, 0.0, 1.0);
+        float rim = smoothstep(0.04, 0.55, 1.0 - normal.z);
+        float bottom = clamp(-normal.y * 1.1 + 0.25, 0.0, 1.0);
+        float dark = rim * mix(0.25, 1.0, bottom * bottom) * 0.65;
+        float top = clamp(normal.y, 0.0, 1.0);
+        vec3 halfLight = normalize(normalize(vec3(-0.35, 0.75, 0.55)) + vec3(0.0, 0.0, 1.0));
+        float spec = pow(max(0.0, dot(normal, halfLight)), 90.0) * 0.28;
+        vec3 wet = color * (1.0 + illumination * (0.04 + 0.10 * bottom)) * (1.0 - dark);
+        wet += illumination * (rim * top * 0.10 + spec);
+        color = mix(color, clamp(wet, 0.0, 1.0), clamp(waterAlpha * lensRainStrength, 0.0, 1.0));
     }
     outColor = vec4(mix(scene.rgb, color, fade), scene.a);
 }
